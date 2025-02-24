@@ -1,0 +1,239 @@
+
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(ggthemes)
+library(glue)
+library(ggtext)
+```
+
+```{r}
+data_dir = "../PCAWG-UCSC/counts_matrices"
+figures_dir = "figures/pcawg_defining_hypermutated"
+output_dir = "output/pcawg_defining_hypermutated"
+
+files = list.files(data_dir)
+nonhyper_sample_names_updated <- readRDS(file = file.path(output_dir, "nonhyper_sample_names_updated.rds"))
+```
+
+## EDA
+
+```{r}
+sample_sizes = list()
+for (file in files) {
+  name = str_replace(file, '.csv', '')
+  print(name)
+  
+
+  data = read.csv(file.path(data_dir, file), row.names = 1)
+  sample_sizes[[name]] = ncol(data)
+}
+```
+
+```{r}
+totals = data.frame(
+  name = names(sample_sizes),
+  n = unlist(sample_sizes),
+  n_nonhyper = sapply(names(sample_sizes), function(name) {
+    length(nonhyper_sample_names_updated[[name]])
+  })
+) %>%
+  dplyr::select(n, n_nonhyper) %>%
+  colSums()
+
+(totals['n'] - totals['n_nonhyper'])
+(totals['n'] - totals['n_nonhyper'])/totals['n']
+```
+
+```{r}
+data.frame(
+  name = names(sample_sizes),
+  n = unlist(sample_sizes),
+  n_nonhyper = sapply(names(sample_sizes), function(name) {
+    length(nonhyper_sample_names_updated[[name]])
+  })
+) %>%
+  mutate(
+    n_hyper = n - n_nonhyper
+  ) %>%
+  arrange(-n_hyper)
+```
+
+```{r}
+data.frame(
+  name = names(sample_sizes),
+  n = unlist(sample_sizes),
+  n_nonhyper = sapply(names(sample_sizes), function(name) {
+    length(nonhyper_sample_names_updated[[name]])
+  })
+) %>%
+  mutate(
+    n_hyper = n - n_nonhyper,
+    prop_hyper = (n - n_nonhyper)/n
+  ) %>%
+  arrange(-prop_hyper)
+```
+
+```{r}
+data.frame(
+  name = names(sample_sizes),
+  n = unlist(sample_sizes),
+  n_nonhyper = sapply(names(sample_sizes), function(name) {
+    length(nonhyper_sample_names_updated[[name]])
+  })
+) %>%
+  filter(n >= 10) %>%
+  mutate(
+    n_hyper = n - n_nonhyper,
+    prop_hyper = (n - n_nonhyper)/n
+  ) %>%
+  ggplot(aes(x = prop_hyper, y = name)) +
+  geom_bar(stat = 'identity') +
+  xlim(c(0,0.1)) +
+  labs(
+    x = "Proportion of Samples That are Hypermutated",
+    y = "Histology Group"
+  ) 
+ggsave(glue("figures/pcawg/prop_hypermutated.png"))
+```
+
+```{r}
+text_size = 19
+data.frame(
+  name = names(sample_sizes),
+  n = unlist(sample_sizes),
+  n_nonhyper = sapply(names(sample_sizes), function(name) {
+    length(nonhyper_sample_names_updated[[name]])
+  })
+) %>%
+  filter(n >= 10) %>%
+  mutate(
+    n_hyper = n - n_nonhyper,
+    prop_hyper = (n - n_nonhyper)/n
+  ) %>%
+  ggplot(aes(y = name, x = n)) +
+  geom_bar(stat = 'identity', fill = 'red') +
+  geom_bar(aes(y =  name, x = n_nonhyper), stat = 'identity')+
+  geom_text(aes(y = name, x = n, label = glue("G = {n}"), hjust = -0.1), size = text_size*0.3528) +
+  geom_text(
+    aes(
+      y = name, x = n + 50,
+      label = ifelse(
+        prop_hyper > 0, 
+        glue("({n_hyper})"), 
+        ""
+      ),
+      hjust = -0.5
+    ),
+    color = 'red', size = text_size*0.3528
+  )+
+  labs(
+    x = 'Number of Subjects\nG = total (# hypermutated)',
+    y = 'Histology Group'
+  ) +
+  theme(
+    axis.text = element_text(size = text_size),
+    axis.title = element_text(size = text_size)
+  )
+ggsave(glue("figures/pcawg/n_hypermutated.png"))
+```
+
+
+```{r}
+data_dir = "../PCAWG-UCSC/counts_matrices"
+mutation_counts_by_histology <- do.call(rbind, lapply(list.files(data_dir), function(file) {
+  name <- str_replace(file, ".csv", "")
+  data <- read.csv(file.path(data_dir, file), row.names = 1)
+  if (ncol(data) == 1) {
+    return(NULL)
+  }
+  data_t <- data.frame(t(data))
+  data_t$histology <- name
+  data_t$n_mutations <- colSums(data)
+  data_t$hypermutated <- !(rownames(data_t) %in% nonhyper_sample_names_updated[[name]])
+  return(data_t)
+}))
+
+mutation_counts_by_histology %>%
+  filter(histology %in% names(sample_sizes[sample_sizes >= 10])) %>%
+  ggplot(aes(y = histology, x = n_mutations, color = hypermutated)) +
+  geom_boxplot(position = position_dodge(width = 0), outlier.shape = NA) +
+  geom_point() +
+  scale_x_log10(
+    labels = scales::label_number(),
+    breaks = c(100, 1000, 10000, 100000)
+  ) +
+  annotation_logticks(sides = "b") +
+  scale_color_manual(
+    values = c("FALSE" = "#4C4C4C", "TRUE" = "red"),
+    labels = c("FALSE" = "Not Hypermutated", "TRUE" = "Hypermutated")
+  )  +
+  labs(
+    x = 'Number of Mutations per Subject',
+    y = 'Histology Group'
+  ) +
+  theme(
+    axis.text = element_text(size = text_size),
+    axis.title = element_text(size = text_size),
+    legend.text = element_text(size = text_size),
+    legend.position = 'top',
+    legend.justification = 'left',
+    legend.title = element_blank()
+  )
+ggsave(glue("figures/pcawg/mut_counts_hypermutated.png"))
+```
+
+
+```{r}
+mutation_counts_by_histology %>%
+  filter(histology %in% names(sample_sizes[sample_sizes >= 10])) %>%
+  merge(
+    data.frame(
+      histology = names(sample_sizes),
+      n = unlist(sample_sizes),
+      n_nonhyper = sapply(names(sample_sizes), function(name) {
+        length(nonhyper_sample_names_updated[[name]])
+      })
+    ) %>%
+      filter(n >= 10) %>%
+      mutate(
+        n_hyper = n - n_nonhyper,
+        prop_hyper = (n - n_nonhyper)/n
+      ),
+    by = 'histology'
+  ) %>% 
+  mutate(
+    label = paste0(histology, ' (G = ', n_nonhyper, ', <span style="color:red;">', n_hyper, '</span>)')
+  ) %>%
+  ggplot(aes(y = label, x = n_mutations, color = hypermutated)) +
+  geom_boxplot(position = position_dodge(width = 0), outlier.shape = NA) +
+  geom_point() +
+  annotation_logticks(sides = "b") +
+  scale_color_manual(
+    values = c("FALSE" = "#4C4C4C", "TRUE" = "red"),
+    labels = c("FALSE" = "Not Hypermutated", "TRUE" = "Hypermutated")
+  )  +
+  labs(
+    x = 'Number of Mutations per Subject',
+    y = 'Histology Group'
+  )  + 
+  scale_x_log10(
+    labels = scales::label_number(),
+    breaks = c(100, 1000, 10000, 100000)
+  ) +
+  scale_y_discrete(labels = function(x) {
+    # Apply red color to 'n_hyper' in the labels
+    gsub("n_hyper", "<span style='color:red;'>n_hyper</span>", x)
+  }) +
+  theme(
+    axis.title = element_text(size = text_size),
+    legend.text = element_text(size = text_size),
+    legend.position = 'top',
+    legend.justification = 'left',
+    legend.title = element_blank(),
+    axis.text.x = element_text(size = text_size),
+    axis.text.y = element_markdown(size = text_size)  
+  )
+ggsave(glue("figures/pcawg/mut_counts_hypermutated_with_n.png"))
+```

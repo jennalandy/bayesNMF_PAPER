@@ -1,0 +1,176 @@
+---
+title: "Define hypermutated signatures"
+author: "Jenna Landy"
+date: "January 14 2025"
+---
+
+# DO NOT RE-RUN
+
+```{r}
+source("defining_hypermutated.R")
+library(glue)
+library(tidyverse)
+
+# uncomment only if re-running
+# data_dir = "data/PCAWG-UCSC/counts_matrices"
+# figures_dir = "figures/pcawg_defining_hypermutated"
+# output_dir = "output/pcawg_defining_hypermutated"
+
+# don't want to re-run. make sure you cant overwrite
+data_dir = FALSE
+figures_dir = FALSE
+output_dir = FALSE
+```
+
+## Fit negative binomial mixture model for each histology group
+
+```{r}
+nonhyper_sample_names = list()
+files = list.files(data_dir)
+
+all_choose_K <- list()
+all_NB_mixture <- list()
+for (file in files) {
+  name = str_replace(file, '.csv', '')
+  print(name)
+  
+  # load data, only continue if at least 10 samples
+  data = read.csv(file.path(data_dir, file), row.names = 1)
+  G = ncol(data)
+  if (G < 10) {
+    print(paste("G =", G, "-- skipping", name))
+    next
+  }
+  mutation_counts = colSums(data)
+  
+  # choose rank: optimize BIC for 1 vs more clusters, optimize silhouette for # >1
+  K_out <- choose_K(mutation_counts)
+  all_choose_K[[name]] <- K_out
+  K <- K_out$K
+  K_out$plot
+  ggsave(file = glue("{figures_dir}/{name}_chooseK.png"))
+
+  # given K, fit mixture model 10 times and keep best fit
+  out <- fit_repeated_NB_mixture(mutation_counts, K = K)
+  all_NB_mixture[[name]] <- all_NB_mixture
+  print(out$summary)
+
+  # plot mixture model
+  png(glue("{figures_dir}/{name}_mixture.png"), width = 800, height = 600)
+  plot_Nb_mixture(out, title = name)
+  dev.off()
+
+  # plot cluster assignments
+  plot_clusters(out, title = name, bins = 10)
+  ggsave(file = glue("{figures_dir}/{name}_clusters.png"))
+
+  # assign cluster with smallest mean to non-hypermutated
+  nonhyper_cluster = which(out$model$mu == min(out$model$mu))
+  nonhyper = rep(FALSE, length(out$model$clusters))
+  nonhyper[out$model$cluster == nonhyper_cluster] = TRUE
+
+  # plot hypermutation label assignments
+  plot_labels(out, nonhyper, title = name, bins = 10)
+  ggsave(file = glue("{figures_dir}/{name}_labels.png"))
+
+  # record the nonhypermutated sample names
+  nonhyper_sample_names[[name]] = colnames(data)[nonhyper]
+}
+
+saveRDS(all_choose_K, file = glue("{output_dir}/choose_K.rds"))
+saveRDS(all_NB_mixture, file = glue("{output_dir}/NB_mixture.rds"))
+saveRDS(nonhyper_sample_names, file = glue("{output_dir}/nonhyper_sample_names.rds"))
+```
+
+## After visual inspection, update three histology groups
+
+```{r}
+nonhyper_sample_names_updated <- readRDS(glue("{output_dir}/nonhyper_sample_names.rds"))
+```
+
+```{r}
+update <- function(file, k, lower = 1, cutoff = NULL) {
+  name = str_replace(file, '.csv', '')
+  print(name)
+  data = read.csv(file.path(data_dir, file), row.names = 1)
+  mutation_counts = colSums(data)
+
+  # given K, fit mixture model 10 times and keep best fit
+  out <- fit_repeated_NB_mixture(mutation_counts, K = K)
+  saveRDS(out, glue("{output_dir}/{name}_NB_mixture_REDO"))
+
+  # plot mixture model
+  png(glue("{figures_dir}/{name}_mixture_REDO.png"), width = 800, height = 600)
+  plot_Nb_mixture(out, title = name)
+  dev.off()
+
+  # plot cluster assignments
+  plot_clusters(out, title = name, bins = 10)
+  ggsave(file = glue("{figures_dir}/{name}_clusters_REDO.png"))
+
+  # assign cluster with smallest 'lower' means to non-hypermutated OR based on provided 'cutoff'
+  nonhyper_cluster = order(out$model$mu)[1:lower]
+  nonhyper = rep(FALSE, length(out$model$clusters))
+  nonhyper[out$model$cluster %in% nonhyper_cluster] = TRUE
+
+  if (!is.null(cutoff)) {
+    to_add <- setdiff(names(which(mutation_counts < cutoff)), nonhyper)
+    nonhyper[names(mutation_counts) %in% to_add] = TRUE
+  }
+  names(nonhyper) = names(mutation_counts)
+
+  # plot hypermutation label assignments
+  plot_labels(out, nonhyper, title = name, bins = 10)
+  ggsave(file = glue("{figures_dir}/{name}_labels_REDO.png"))
+
+  return(colnames(data)[nonhyper])
+}
+```
+
+```{r}
+file = "Panc-AdenoCA.csv"
+K <- 2
+name = str_replace(file, '.csv', '')
+nonhyper_sample_names_updated[[name]] <- update(file, k, cutoff = 17000)
+```
+
+```{r}
+file = "Prost-AdenoCA.csv"
+K <- 8
+name = str_replace(file, '.csv', '')
+nonhyper_sample_names_updated[[name]] <- update(file, k, lower = 7)
+```
+
+```{r}
+file = "Stomach-AdenoCA.csv"
+K <- 3
+name = str_replace(file, '.csv', '')
+nonhyper_sample_names_updated[[name]] <- update(file, k, lower = 2)
+```
+
+```{r}
+saveRDS(nonhyper_sample_names_updated, file = glue("{output_dir}/nonhyper_sample_names_updated.rds"))
+```
+
+## Save non-hypermutated counts matrices to new csv
+
+```{r}
+dst_dir = "pcawg_counts_matrices_nonhyper"
+
+for (file in files) {
+  name = str_replace(file, '.csv', '')
+
+  # load data, only continue if at least 10 samples
+  data = read.csv(file.path(data_dir, file), row.names = 1)
+  G = ncol(data)
+  if (G < 10) {
+    print(paste("G =", G, "-- skipping", name))
+    next
+  }
+
+  # subset to non-hypermutated samples
+  data = data[,nonhyper_sample_names_updated[[name]]]
+  print(paste(name, ncol(data)))
+  write.csv(data, file = file.path(dst_dir, paste0(name, ".csv")))
+}
+```

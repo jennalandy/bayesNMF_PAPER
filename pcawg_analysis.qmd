@@ -1,0 +1,650 @@
+
+```{r}
+library(ggplot2)
+library(ggthemes)
+library(scales)
+library(ggbreak)
+library(ggrepel)
+library(patchwork)
+library(scales)
+library(tidyverse)
+library(bayesNMF)
+library(glue)
+library(ggthemes)
+library(gginnards)
+library(ggedit)
+library(grid)
+library(png)
+library(gridExtra)
+
+source("pcawg_analysis_bayesNMF.R")
+source("pcawg_analysis_SignatureAnalyzer.R")
+
+reference <- get_cosmic()
+dim(reference)
+```
+
+## bayesNMF Results
+
+```{r}
+results_dir <- "output/pcawg_bayesNMF"
+figures_dir <- "figures/pcawg_bayesNMF"
+```
+
+```{r}
+res_list = list()
+res_files <- list.files(results_dir)
+res_files <- res_files[grepl(".rds", res_files) & !grepl("all_res", res_files)]
+
+for (file in res_files) {
+  name = str_split(file, ".rds")[[1]][1]
+  print(name)
+
+  res <- readRDS(file.path(results_dir, file))
+  res_list[[name]] <- res
+}
+saveRDS(res_list, file = file.path(results_dir, "all_res.rds"))
+```
+
+```{r}
+bayesNMF_out <- bayesNMF::plot_results(res_list, return_df = TRUE)
+
+color_range = 2**seq(0, log(70000, 2), by = 2)
+
+bayesNMF_out$plot  +
+  ggplot2::scale_color_gradient(
+    low = 'yellow', high = 'blue', trans = 'log2',
+    breaks = color_range,
+    limits = c(1, max(color_range))
+  ) +
+  ggplot2::labs(
+    color = "Median Contribution\n(# Mutations)"
+  )
+
+saveRDS(bayesNMF_out, file = file.path(figures_dir, "out.rds"))
+ggsave(file.path(figures_dir, "dot_plot.png"), height = 15, width = 10)
+```
+
+```{r}
+# flipped
+title_size = 35
+font_size = 20
+
+bayesNMF_out$df %>%
+  filter(Med_Contribution > 0) %>%
+  ggplot2::ggplot(ggplot2::aes(
+    y = Name, x = Signature, color = Med_Contribution
+  )) +
+  ggplot2::geom_point(ggplot2::aes(size = Cosine_Similarity)) +
+  ggplot2::scale_x_discrete(
+    position = "top",
+    limits = colnames(reference)
+  ) +
+  ggplot2::scale_size_continuous(
+    breaks = c(0, 0.25, 0.5, 0.75, 1),
+    limits = c(0, 1)
+   ) +
+  ggplot2::scale_color_gradient(
+    low = 'yellow', high = 'blue', trans = 'log2',
+    breaks = color_range,
+    limits = c(min(color_range), max(color_range))
+  ) +
+  ggplot2::labs(
+    color = "Median Contribution\n(# Mutations)",
+    size = "Posterior Average\nCosine Similarity to\nReference Signature",
+    y = 'Cancer Histology Group'
+  ) +
+  ggplot2::theme(
+    text = ggplot2::element_text(size = font_size),
+    axis.title = ggplot2::element_text(size = title_size),
+    legend.title = ggplot2::element_text(size = title_size),
+    legend.text = element_text(size = font_size),
+    axis.text.x = ggplot2::element_text(angle = 90, hjust = 0, vjust = 0.5),
+    plot.title = ggplot2::element_text(hjust = 0.5),
+    plot.margin = margin(5, 10, 5, 5) ,
+    legend.key.height = unit(2.5, "lines")
+  ) +
+  guides(
+    color = guide_colorbar(order = 1),
+    size = guide_legend(order = 2)
+  )
+
+ggsave(file.path(figures_dir, "dot_plot_flipped.png"), height = 10, width = 25)
+```
+
+```{r}
+title_size = 12
+font_size = 9
+
+file = "Skin-Melanoma.rds"
+res <- readRDS(file.path(results_dir, file))
+get_heatmap(res$credible_intervals$P[[1]], res$credible_intervals$P[[2]]) +
+  theme(
+    axis.text = element_text(size = 15)
+  )
+get_heatmap(res$MAP$P, reference) +
+  theme(
+    axis.text = element_text(size = 15)
+  )
+plot = bayesNMF::plot_sig(res, sig = 7, title = "Skin-Melanoma") +
+  theme(
+    text = element_text(size = font_size),
+    title = element_text(size = title_size)
+  )
+plot = plot + labs(title = gsub("\n", ", ", ggplot_build(plot)$plot$labels$title))
+
+ggsave(file = file.path(figures_dir, "Skin-Melanoma-SBS7b.png"), height = 3)
+```
+
+```{r}
+file = "Eso-AdenoCA.rds"
+res <- readRDS(file.path(results_dir, file))
+get_heatmap(res$credible_intervals$P[[1]], res$credible_intervals$P[[2]]) +
+  theme(
+    axis.text = element_text(size = 15)
+  )
+get_heatmap(res$MAP$P, reference) +
+  theme(
+    axis.text = element_text(size = 15)
+  )
+
+plot = bayesNMF::plot_sig(res, sig = 1, title = "Eso-AdenoCA") +
+  theme(
+    text = element_text(size = font_size),
+    title = element_text(size = title_size)
+  )
+plot = plot + labs(title = gsub("\n", ", ", ggplot_build(plot)$plot$labels$title))
+ggsave(file = file.path(figures_dir, "Eso-AdenoCA-SBS6.png"), height = 3)
+```
+
+## SignatureAnalyzer Results
+
+```{r}
+results_dir = "output/pcawg_SignatureAnalyzer"
+figures_dir <- "figures/pcawg_SignatureAnalyzer"
+```
+
+Use python to load the results and save estimated W (signatures) to a csv
+```{python}
+import pandas as pd
+import os
+
+results_dir = "output/pcawg_SignatureAnalyzer"
+results_list = os.listdir(results_dir)
+
+for results in results_list:
+  file_path = os.path.join(results_dir, results, 'nmf_output.h5')
+  W = pd.read_hdf(file_path, 'W')
+  W.to_csv(os.path.join(results_dir, results, "W.csv"))
+  H = pd.read_hdf(file_path, 'H')
+  H.to_csv(os.path.join(results_dir, results, "H.csv"))
+```
+
+
+```{r}
+results_list = list.dirs(results_dir)
+results_list = results_list[results_list != results_dir]
+
+results_df <- do.call(rbind, lapply(results_list, function(res) {
+  name_parts = str_split(res, '/')[[1]]
+  name = name_parts[length(name_parts)]
+  print(name)
+
+  Phat <- read.csv(file.path(res, "W.csv")) %>%
+    column_to_rownames("X") %>%
+    select(starts_with('S'))
+
+  Ehat <- read.csv(file.path(res, "H.csv")) %>%
+    column_to_rownames("X") %>%
+    select(starts_with('S')) %>%
+    t()
+
+  # rescale so P columns sum to 1
+  Ehat <- sweep(Ehat, 1, colSums(Phat), '*')
+  Phat <- sweep(Phat, 2, colSums(Phat), '/')
+
+  sim <- pairwise_sim(Phat, reference)
+  if (ncol(Phat) == 1) {
+    sim <- matrix(sim, nrow = 1)
+    colnames(sim) <- colnames(reference)
+    rownames(sim) <- colnames(Phat)
+  }
+  assigned <- hungarian_algorithm(sim)
+
+  Med_Contribution = apply(Ehat, 1, function(row) {
+    if (sum(row > 0) == 0) {
+      val = 0
+    } else {
+      val = median(row[row > 0])
+    }
+    return(val)
+  })
+
+  df <- data.frame(
+    Name = name,
+    n = rownames(assigned),
+    Signature = colnames(assigned),
+    Cosine_Similarity = diag(assigned),
+    Med_Contribution = Med_Contribution,
+    G = ncol(Ehat)
+  )
+  return(df)
+}))
+
+write.csv(results_df, file.path(figures_dir, "out.csv"))
+results_df <- results_df %>%
+  dplyr::mutate(
+    Name_G = paste0(Name, " (", G, ")"),
+    Signature = factor(Signature, levels = rev(colnames(reference)))
+  )
+```
+
+```{r}
+# flipped
+title_size = 35
+font_size = 20
+
+results_df %>%
+  filter(Med_Contribution >= 0) %>%
+  ggplot2::ggplot(ggplot2::aes(
+    y = Name_G, x = Signature, color = Med_Contribution
+  )) +
+  ggplot2::geom_point(ggplot2::aes(size = Cosine_Similarity)) +
+  ggplot2::scale_x_discrete(
+    position = "top",
+    limits = colnames(reference)
+  ) +
+  ggplot2::scale_size_continuous(
+    breaks = c(0, 0.25, 0.5, 0.75, 1),
+    limits = c(0, 1)
+   ) +
+  ggplot2::scale_color_gradient(
+    low = 'yellow', high = 'blue', trans = 'log2',
+    breaks = color_range,
+    limits = c(min(color_range), max(color_range))
+  ) +
+  ggplot2::labs(
+    color = "Median Contribution\n(# Mutations)",
+    size = "Maximum a Posteriori\nCosine Similarity to\nReference Signature",
+    y = 'Cancer Histology Group'
+  ) +
+  ggplot2::theme(
+    text = ggplot2::element_text(size = font_size),
+    axis.title = ggplot2::element_text(size = title_size),
+    legend.title = ggplot2::element_text(size = title_size),
+    legend.text = element_text(size = font_size),
+    axis.text.x = ggplot2::element_text(angle = 90, hjust = 0, vjust = 0.5),
+    plot.title = ggplot2::element_text(hjust = 0.5),
+    plot.margin = margin(5, 10, 5, 5) ,
+    legend.key.height = unit(2.5, "lines")
+  ) +
+  guides(
+    color = guide_colorbar(order = 1),
+    size = guide_legend(order = 2)
+  )
+
+ggsave(file.path(figures_dir, "dot_plot_flipped.png"), height = 10, width = 25)
+```
+
+```{r}
+title_size = 12
+font_size = 9
+
+histology = 'Skin-Melanoma'
+
+Phat <- read.csv(file.path(results_dir, histology, "W.csv")) %>%
+  column_to_rownames("X") %>%
+  select(starts_with('S'))
+
+Ehat <- read.csv(file.path(results_dir, histology, "H.csv")) %>%
+  column_to_rownames("X") %>%
+  select(starts_with('S')) %>%
+  t()
+
+res <- list(
+  'MAP' = list(
+    'P' = Phat,
+    'E' = Ehat
+  ),
+  credible_intervals = list(
+    'P' = list(Phat, Phat),
+    'E' = list(Ehat, Ehat)
+  )
+)
+
+get_heatmap(Phat, reference) +
+  theme(
+    axis.text = element_text(size = 15)
+  )
+
+plot = (bayesNMF::plot_sig(res, sig = 26, title = 'Skin-Melanoma')  +
+  theme(
+    text = element_text(size = font_size),
+    title = element_text(size = title_size)
+  )) %>% remove_geom(geom = "errorbar")
+plot = plot + labs(title = gsub("\n", ", ", ggplot_build(plot)$plot$labels$title))
+
+ggsave(file = file.path(figures_dir, "Skin-Melanoma-SBS7b.png"), height = 3)
+```
+
+```{r}
+histology = 'Eso-AdenoCA'
+
+Phat <- read.csv(file.path(results_dir, histology, "W.csv")) %>%
+  column_to_rownames("X") %>%
+  select(starts_with('S'))
+
+Ehat <- read.csv(file.path(results_dir, histology, "H.csv")) %>%
+  column_to_rownames("X") %>%
+  select(starts_with('S')) %>%
+  t()
+
+res <- list(
+  'MAP' = list(
+    'P' = Phat,
+    'E' = Ehat
+  ),
+  credible_intervals = list(
+    'P' = list(Phat, Phat),
+    'E' = list(Ehat, Ehat)
+  )
+)
+
+get_heatmap(Phat, reference) +
+  theme(
+    axis.text = element_text(size = 15)
+  )
+
+plot = (bayesNMF::plot_sig(res, sig = 4, title = 'Eso-AdenoCA')  +
+  theme(
+    text = element_text(size = font_size),
+    title = element_text(size = title_size)
+  )) %>% remove_geom(geom = "errorbar")
+plot = plot + labs(title = gsub("\n", ", ", ggplot_build(plot)$plot$labels$title))
+ggsave(file = file.path(figures_dir, "Eso-AdenoCA-SBS6.png"), height = 3)
+```
+
+## Combine Results for Figure 3
+
+```{r}
+figures_dir = "figures/pcawg"
+```
+
+```{r}
+# colorblind friendly colors, from http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette:
+colors = list(
+  'bayesNMF' = "#E69F00",
+  'both' = "#009E73",
+  'SignatureAnalyzer' = "#0072B2"
+)
+```
+
+### Compare ranks
+
+```{r}
+# load data saved above
+bayesNMF_out <- readRDS(file.path("figures", "pcawg_bayesNMF", "out.rds"))
+bayesNMF_df <- bayesNMF_out$df
+
+SignatureAnalyzer_df <- read.csv(file.path("figures", "pcawg_SignatureAnalyzer", "out.csv"))
+
+bayesNMF_df$Name <- sapply(bayesNMF_df$Name, function(name) {
+  str_split(name, ' ')[[1]][1]
+})
+
+combo_df = bayesNMF_df %>%
+  mutate( method = 'bayesNMF') %>%
+  rbind(
+    ., SignatureAnalyzer_df %>%
+    mutate(method = 'SignatureAnalyzer') %>%
+    select(colnames(bayesNMF_df), method)
+  )
+```
+
+```{r}
+# extract rank information
+bayesNMF_rank <- bayesNMF_df %>%
+  group_by(Name) %>%
+  tally() %>%
+  mutate(bayesNMF_rank = n) %>%
+  select(-n)
+
+bayesNMF_rank$Name <- sapply(bayesNMF_rank$Name, function(name) {
+  str_split(name, ' ')[[1]][1]
+})
+
+SignatureAnalyzer_rank <- SignatureAnalyzer_df %>%
+  group_by(Name) %>%
+  tally() %>%
+  mutate(SignatureAnalyzer_rank = n) %>%
+  select(-n)
+
+ranks <- merge(bayesNMF_rank, SignatureAnalyzer_rank, by = 'Name')
+```
+
+
+```{r}
+title_size = 35
+font_size = 20
+
+plot_dat = ranks %>%
+  pivot_longer(2:3, names_to = 'method', values_to = 'rank') %>%
+  mutate(
+    method = str_replace(method, '_rank', '')
+  ) 
+same_rows = plot_dat %>%
+  group_by(Name) %>%
+  summarize(
+    same = length(unique(rank)) == 1
+  ) %>%
+  filter(same)
+
+plot_dat %>%
+  mutate(
+    method = ifelse(
+      Name %in% same_rows$Name,
+      'both',
+      method
+    )
+  ) %>%
+  unique() %>%
+  ggplot(aes(y = Name, x = rank, color = method)) +
+  geom_point(size = 6) +
+  ggplot2::scale_x_continuous(
+    breaks = seq(0, 60, by = 10),
+    position = "top"
+  ) +
+  ggplot2::theme(
+    text = ggplot2::element_text(size = font_size),
+    axis.title = ggplot2::element_text(size = title_size),
+    legend.title = ggplot2::element_text(size = title_size),
+    legend.text = element_text(size = font_size),
+    axis.title.y = ggplot2::element_blank(),
+    plot.title = ggplot2::element_text(hjust = 0.5),
+    plot.margin = margin(15, 1, 1, 1),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  ) +
+  labs(
+    y = 'Cancer Histology Group',
+    x = 'Estimated\nRank',
+    color = 'Method'
+  ) +
+  scale_color_manual(values = colors)
+
+ggsave(file.path(figures_dir, "rank_comparison_2_flipped.png"), height = 10, width = 5.5)
+```
+
+### Dot plot with signatures identified by one method, the other, or both 
+
+```{r}
+title_size = 35
+font_size = 20
+
+combo_df %>%
+  mutate(Name_G = paste0(Name, " (", G, ")")) %>%
+  group_by(Name_G, Signature) %>%
+  summarize(
+    bayesNMF = "bayesNMF" %in% method,
+    SignatureAnalyzer = "SignatureAnalyzer" %in% method
+  ) %>%
+  mutate(
+    color = case_when(
+      bayesNMF & SignatureAnalyzer ~ "both",
+      bayesNMF ~ "bayesNMF",
+      SignatureAnalyzer ~ "SignatureAnalyzer"
+    )
+  ) %>%
+  ggplot(aes(
+    y = Name_G, x = Signature, color = color
+  )) +
+  geom_point(size = 6) +
+  ggplot2::scale_x_discrete(
+    limits = colnames(reference),
+    position = "top"
+  ) +
+  ggplot2::scale_color_manual(values = colors) +
+  labs(
+    color = 'Method',
+    y = 'Cancer Histology Group'
+  ) +
+  ggplot2::theme(
+    text = ggplot2::element_text(size = font_size),
+    axis.title = ggplot2::element_text(size = title_size),
+    legend.title = ggplot2::element_text(size = title_size),
+    legend.text = element_text(size = font_size),
+    axis.text.x = ggplot2::element_text(angle = 90, hjust = 0, vjust = 0.5),
+    plot.title = ggplot2::element_text(hjust = 0.5),
+    legend.position = 'none',
+    plot.margin = margin(5, 10, 5, 5)
+  )
+
+ggsave(file.path(figures_dir, "combo_dot_plot_flipped.png"), height = 10, width = 25 - 5.5)
+```
+
+## Build full figure
+
+```{r}
+add_label_top_left <- function(grob, label, label_size = 100, label_margin = unit(0, "lines")) {
+  gridExtra::arrangeGrob(
+    grob,
+    top = textGrob(
+      label,
+      x = unit(0, "npc") + label_margin,   # Align to left with margin
+      y = unit(1, "npc") - label_margin,   # Add top margin
+      just = c("left", "top"),             # Align to top-left corner
+      gp = gpar(fontsize = label_size, fontface = "bold")  # Set label style
+    )
+  )
+}
+
+text_with_background <- function(text, background_color = 'lightgrey', text_color = 'black', fontsize = 100, rot = 90){
+  grid::grobTree(
+    rectGrob(
+      gp = gpar(fill = background_color, col = NA)
+    ),
+    textGrob(text, gp = gpar(col = text_color, fontsize = fontsize), rot = rot)
+  )
+}
+```
+
+```{r}
+png_bayesNMF_dot = readPNG("figures/pcawg_bayesNMF/dot_plot_flipped.png")
+fig_bayesNMF_dot = rasterGrob(png_bayesNMF_dot, interpolate = TRUE)
+
+png_SA_dot = readPNG("figures/pcawg_SignatureAnalyzer/dot_plot_flipped.png")
+fig_SA_dot = rasterGrob(png_SA_dot, interpolate = TRUE)
+
+png_bayesNMF_7b = readPNG("figures/pcawg_bayesNMF/Skin-Melanoma-SBS7b.png")
+fig_bayesNMF_7b = rasterGrob(png_bayesNMF_7b, interpolate = TRUE)
+
+png_SA_7b = readPNG("figures/pcawg_SignatureAnalyzer/Skin-Melanoma-SBS7b.png")
+fig_SA_7b = rasterGrob(png_SA_7b, interpolate = TRUE)
+
+png_bayesNMF_6 = readPNG("figures/pcawg_bayesNMF/Eso-AdenoCA-SBS6.png")
+fig_bayesNMF_6 = rasterGrob(png_bayesNMF_6, interpolate = TRUE)
+
+png_SA_6 = readPNG("figures/pcawg_SignatureAnalyzer/Eso-AdenoCA-SBS6.png")
+fig_SA_6 = rasterGrob(png_SA_6, interpolate = TRUE)
+
+png_combo_dot = readPNG(file.path(figures_dir, "combo_dot_plot_flipped.png"))
+fig_combo_dot = rasterGrob(png_combo_dot, interpolate = TRUE)
+
+png_rank = readPNG(file.path(figures_dir, "rank_comparison_2_flipped.png"))
+fig_rank = rasterGrob(png_rank, interpolate = TRUE)
+```
+
+
+```{r}
+space = 0.5
+
+sigs_bayesNMF <- arrangeGrob(
+  add_label_top_left(fig_bayesNMF_7b, "A"),
+  add_label_top_left(fig_bayesNMF_6, "B"),
+  ncol = 2, widths = c(25/2, 25/2)
+)
+
+sigs_SA <- arrangeGrob(
+  add_label_top_left(fig_SA_7b, "C"),
+  add_label_top_left(fig_SA_6, "D"),
+  ncol = 2, widths = c(25/2, 25/2)
+)
+
+plot <- grid.arrange(
+  grobs = list(
+    text_with_background('bayesNMF Results', rot = 0),
+    grid::textGrob(""),
+    sigs_bayesNMF,
+    grid::textGrob(""),
+    text_with_background('SignatureAnalyzer Results', rot = 0),
+    grid::textGrob(""),
+    sigs_SA
+  ),
+  ncol = 1,
+  heights = c(1, space, 5, space, 1, space, 5)
+)
+png(file.path(figures_dir, "pcawg_sigs.png"), width = (25)*300, height = (5+5)*300)
+grid.draw(plot)
+dev.off()
+```
+
+```{r}
+space = 1
+
+combo <- arrangeGrob(
+  add_label_top_left(fig_combo_dot, "C"),
+  add_label_top_left(fig_rank, "D"),
+  ncol = 2, widths = c(25-5.5, 5.5)
+)
+
+plot <- grid.arrange(
+  grobs = list(
+    text_with_background('bayesNMF Results', fontsize = 200),
+    grid::textGrob(""),
+    add_label_top_left(fig_bayesNMF_dot, "A"),
+
+    grid::textGrob(""),
+    grid::textGrob(""),
+    grid::textGrob(""),
+
+    text_with_background('SignatureAnalyzer Results', fontsize = 200),
+    grid::textGrob(""),
+    add_label_top_left(fig_SA_dot, "B"),
+
+    grid::textGrob(""),
+    grid::textGrob(""),
+    grid::textGrob(""),
+
+    text_with_background('Comparing Results', fontsize = 200),
+    grid::textGrob(""),
+    combo
+  ),
+  ncol = 3,
+  heights = c(10, space, 10, space, 10),
+  widths = c(1, space, 25)
+)
+
+png(file.path(figures_dir, "figure3.png"), width = (25)*300, height = (10*3)*300)
+grid.draw(plot)
+dev.off()
+```

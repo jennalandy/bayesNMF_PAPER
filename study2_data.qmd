@@ -1,0 +1,100 @@
+# Create Simulated Datasets for Study 2
+
+```{r}
+library(MCMCpack)
+library(glue)
+
+data_dir <- "data/study2"
+figures_dir <- "'figures/study2"
+```
+
+## Set Parameters
+```{r}
+get_cosmic <- function() {
+  P <- read.csv(
+    "https://cog.sanger.ac.uk/cosmic-signatures-production/documents/COSMIC_v3.3.1_SBS_GRCh37.txt",
+    sep = "\t"
+  )
+  rownames(P) <- P$Type
+  P <- P[, 2:ncol(P)]
+  P <- as.matrix(P)
+  return(P)
+}
+reference <- get_cosmic()
+```
+
+```{r}
+G <- 64
+Ns <- 1:20
+K <- nrow(reference)
+
+Nreps <- 10
+```
+
+```{r}
+# set hyperparameters for distribution of m_g ~ NB(r * N, p)
+p <- 0.1
+mean_mutations_per_signature <- 1000 # r(1-p)/p
+r <- mean_mutations_per_signature * p / (1 - p)
+
+hist(rnbinom(10000, size = r, prob = p))
+```
+
+## Simulate
+Each data object is a list containing
+- M: data matrix (mutational counts), K mutation types x G samples
+- P: generating factors (mutational signatures), K mutation types x N factors
+- E: generating weights (exposures), N factors x G samples
+
+```{r}
+set.seed(321)
+for (N in Ns) {
+  for (rep in 1:Nreps) {
+    # sample a subset of N reference signatures
+    sigs <- sample(1:ncol(reference), size = N, replace = FALSE)
+    P <- reference[,sigs]
+    if (N == 1) {
+      P = matrix(P, ncol = 1)
+    }
+
+    # sample m_g = E[# mutations for subject g]
+    # scales with number of signatures, so all signatures have 
+    # approximately equal power
+    m <- rnbinom(G, size = r * N, prob = p)
+
+    # sample contributions Eg and mutational counts Mg
+    E <- matrix(nrow = N, ncol = G)
+    M <- matrix(nrow = K, ncol = G)
+    for (g in 1:G) {
+      probs <- rdirichlet(1, rep(1, N))
+      E[,g] <- rmultinom(1, size = m[g], prob = probs)
+      M[,g] <- rpois(K, P%*%E[,g])
+    }
+
+    # save full dataset
+    data <- list(
+      M = M,
+      P = P,
+      E = E
+    )
+    saveRDS(data, file = file.path(
+      data_dir, 
+      glue("N{N}_G{G}_rep{rep}.rds")
+    ))
+  }
+}
+```
+
+Separately, save a csv file of the $M$ data matrix for each simulation (this is needed to run SignatureAnalyzer).
+```{r}
+files = list.files(data_dir)
+files = files[grepl('.rds', files)]
+for (file in files) {
+  data = readRDS(file.path(data_dir, file))
+  rownames(data$M) = rownames(reference)
+  write.csv(
+    data$M, 
+    file.path(data_dir, str_replace(file, '.rds', '.csv'))
+  )
+}
+```
