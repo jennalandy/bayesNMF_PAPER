@@ -242,8 +242,8 @@ results <- do.call(rbind, lapply(results_list, function(res) {
       fill_zeros
     )
     Phat <- Phat[rownames(reference),]
+    if (rank == 1) {  Phat <- matrix(Phat, ncol = 1) }
   }
-  if (rank == 1) {  Phat <- matrix(Phat, ncol = 1) }
 
   if (nrow(Phat) != 96) {
     print("WHAT??")
