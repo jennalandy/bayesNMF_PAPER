@@ -1,6 +1,6 @@
 # bayesNMF: Fast Bayesian Poisson NMF with Automatically Learned Rank Applied to Mutational Signatures
 
-This repository contains all code necessary to recreate all simulation studies and data application results presented in the paper "bayesNMF: Fast Bayesian Poisson NMF with Automatically Learned Rank Applied to Mutational Signatures".
+This repository contains all code necessary to recreate all simulation studies and data application results presented in the paper ["bayesNMF: Fast Bayesian Poisson NMF with Automatically Learned Rank Applied to Mutational Signatures"](https://arxiv.org/abs/2502.18674). For the R package, see the [bayesNMF](https://github.com/jennalandy/bayesNMF/blob/master/README.md) repository.
 
 Each section has three steps: data creation/processing, fitting models (running slurm jobs), and analyzing results. Below, we define all files needed to reproduce our results. This GitHub repostory demonstrates the expected directory structure.
 
