@@ -1,0 +1,108 @@
+---
+title: "Analyzing bayesNMF results on study 2 data with a maximum of N = 10 signatures"
+author: "Jenna Landy"
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(bayesNMF)
+library(ggh4x)
+library(cowplot)
+library(glue)
+
+data_dir <- "../../data/study2"
+output_dir <- "../../output/study2_N10"
+processed_dir <- "../../processed/study2_N10"
+figures_dir <- "../../figures/study2_N10"
+```
+
+```{r}
+color_list <- c(
+  'P_E' = "#D55E00",    # dark orange
+  'P_E_MH' = "#E69F00", # orange
+  'P_E_MH_SBFI' = "#E69F00", # orange
+  'P_E_MH_BIC' = "#F0E442", # yellow
+  "signatureanalyzer_L1" = "#CC79A7", # pink
+  'P_G' = "#56B4E9",    # dark blue
+  'P_T_MH' = "#56B4E9", # dark blue
+  'P_T_MH_SBFI' = "#0072B2", # blue
+  'P_T_MH_BIC' = "#56B4E9", # light blue
+  "signatureanalyzer_L2" = "#009E73", # green
+  'N_E' = "black",
+  'N_T' = "grey"
+)
+
+color_names <- c(
+  'P_E' = "Poisson-Exponential",
+  'P_E_MH' = "Poisson-Exponential + MH",
+  'P_E_MH_SBFI' = "Poisson-Exponential + MH SBFI",
+  'P_E_MH_BIC' = "Poisson-Exponential + MH Heuristic",
+  "signatureanalyzer_L1" = "SignatureAnalyzer L1",
+  'P_G' = "Poisson-Gamma",
+  'P_T_MH' = "Poisson-Truncated Normal + MH",
+  'P_T_MH_SBFI' = "Poisson-Truncated Normal + MH SBFI",
+  'P_T_MH_BIC' = "Poisson-Truncated Normal + MH Heuristic",
+  'N_E' = "Normal-Exponential",
+  'N_T' = "Normal-Truncated Normal",
+  "signatureanalyzer_L2" = "SignatureAnalyzer L2"
+)
+
+prior_colors <- c(
+  'Exponential' = "#E69F00",
+  "Gamma / Truncated Normal" = "#56B4E9",
+  "Truncated Normal" = "#56B4E9"
+)
+```
+
+```{r}
+results <- read.csv(file.path(processed_dir, "metrics.csv")) %>%
+  filter(
+    grepl('signatureanalyzer', model) | grepl('SBFI', model) | grepl('BIC', model)
+  )
+
+results %>%
+  group_by(model) %>%
+  tally()
+```
+
+## Figure 3: 
+
+```{r}
+results %>%
+  mutate(
+    model = factor(model, levels = names(color_list))
+  ) %>%
+  mutate(
+    rank_bias = learned_rank - N,
+    total_minutes = log2(total_minutes)
+  ) %>%
+  pivot_longer(c(precision, sensitivity, rank_bias, total_minutes), names_to = "metric", values_to = "value") %>%
+  mutate(
+    metric = factor(metric, levels = c('rank_bias','precision','sensitivity', 'total_minutes'), labels = c('Rank Bias','Precision','Sensitivity', 'log2(Total Minutes)'))
+  ) %>%
+  ggplot(aes(x = as.factor(N), y = value, color = model)) +
+  facet_grid(rows = vars(metric), scales = 'free', switch = 'y') +
+  geom_boxplot() +
+  labs(
+    x = "True Rank",
+    color = "Model"
+  ) +
+  theme(
+    text = element_text(size = 20),
+    legend.position = "top",
+    legend.justification = "left",
+    axis.title.y = element_blank(),
+    strip.text.y.left = element_text(angle = 0),
+    strip.placement = 'outside'
+  ) +
+  scale_color_manual(
+    breaks = names(color_list),
+    labels = color_names,
+    values = color_list
+  ) +
+  guides(
+    color = guide_legend(nrow = 2, byrow = TRUE)
+  )
+ggsave(file.path(figures_dir, "rank_metrics_aligned.png"), width = 15, height = 13)
+```

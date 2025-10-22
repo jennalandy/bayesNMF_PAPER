@@ -1,0 +1,95 @@
+---
+title: "Simulating study 1 sparse data"
+author: "Jenna Landy"
+---
+
+Sensitivity analysis on study 1 with an average of 100 mutations per study per signature (spread across 96 mutation types).
+
+```{r}
+library(MCMCpack)
+library(glue)
+library(bayesNMF)
+library(ggplot2)
+library(tidyverse)
+
+data_dir <- "../../data/study1_sparse"
+figures_dir <- "../../figures/study1_sparse"
+```
+
+```{r}
+Gs <- c(16, 32, 64, 128)
+Ns <- c(2, 4, 8, 16)
+
+reference <- get_cosmic()
+K <- nrow(reference)
+
+Nreps <- 10
+```
+
+mean_mutations_per_signature is the key change from the study 1 regular version.
+```{r}
+# set hyperparameters for distribution of m_g ~ NB(r * N, p)
+p <- 0.1
+mean_mutations_per_signature <- 100 # r(1-p)/p 
+r <- mean_mutations_per_signature * p / (1 - p)
+
+summary(rnbinom(10000, size = r*2, prob = p))
+```
+
+```{r}
+set.seed(321)
+sparsity <- data.frame(N = numeric(), G = numeric(), sparsity = numeric(), median_count = numeric())
+for (N in Ns) {
+  for (G in Gs) {
+    if (G < 4*N) {next} # skip if G < 4*N
+    for (rep in 1:Nreps) {
+      # sample a subset of N reference signatures
+      sigs <- sample(1:ncol(reference), size = N, replace = FALSE)
+      P <- as.matrix(reference[,sigs])
+
+      # sample m_g = E[# mutations for subject g]
+      # scales with number of signatures, so all signatures have 
+      # approximately equal power
+      m <- rnbinom(G, size = r * N, prob = p)
+
+      # sample contributions Eg and mutational counts Mg
+      probs <- matrix(nrow = N, ncol = G)
+      E <- matrix(nrow = N, ncol = G)
+      M <- matrix(nrow = K, ncol = G)
+      for (g in 1:G) {
+        probs[,g] <- rdirichlet(1, rep(1, N))
+        E[,g] <- rmultinom(1, size = m[g], prob = probs[,g])
+        M[,g] <- rpois(K, P%*%E[,g])
+      }
+
+      # save full dataset
+      data <- list(
+        M = M,
+        P = P,
+        E = E,
+        probs = probs
+      )
+      saveRDS(data, file = file.path(
+        data_dir, 
+        glue("N{N}_G{G}_rep{rep}.rds")
+      ))
+      sparsity <- rbind(sparsity, data.frame(N = N, G = G, sparsity = mean(M == 0), median_count = median(M)))
+    }
+  }
+}
+```
+
+```{r}
+sparsity %>%
+  ggplot(aes(x = G, y = sparsity)) +
+  facet_grid(cols = vars(N)) +
+  geom_point()
+ggsave(file.path(figures_dir, "sparsity.png"))
+
+
+sparsity %>%
+  ggplot(aes(x = G, y = median_count)) +
+  facet_grid(cols = vars(N)) +
+  geom_jitter()
+ggsave(file.path(figures_dir, "median_count.png"))
+```

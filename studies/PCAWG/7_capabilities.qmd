@@ -1,0 +1,73 @@
+---
+title: "Demonstrating bayesNMF capabilities with PCAWG breast adenocarcinoma data example"
+author: "Jenna Landy"
+---
+
+```{r}
+library(bayesNMF)
+library(ggplot2)
+library(tidyverse)
+reference <- get_cosmic()
+
+output_dir = "../../output/PCAWG/bayesNMF"
+figures_dir = "../../figures/capabilities"
+```
+
+```{r}
+sampler <- readRDS(file.path(output_dir, "Breast_AdenoCA_save/sampler.rds"))
+reference <- reference[rownames(sampler$data),]
+
+trace_plot(sampler)
+ggsave(file.path(figures_dir, "trace_plot.png"), height = 10, width = 12)
+
+trace_plot(sampler, MAP_means = TRUE)
+ggsave(file.path(figures_dir, "trace_plot_MAP.png"), height = 13, width = 12)
+```
+
+```{r}
+plot_similarity_heatmap(sampler$MAP$P, reference)
+ggsave(file.path(figures_dir, "heatmap.png"), height = 8, width = 10)
+```
+
+```{r}
+height = 4
+width = 13
+plot_sig(sampler, 1, reference_P = reference)
+ggsave(file.path(figures_dir, "sig_SBS2.png"), height = height, width = width)
+
+plot_sig(sampler, 2, reference_P = reference)
+ggsave(file.path(figures_dir, "sig_SBS3.png"), height = height, width = width)
+
+plot_sig(sampler, 3, reference_P = reference)
+ggsave(file.path(figures_dir, "sig_SBS1.png"), height = height, width = width)
+
+plot_sig(sampler, 4, reference_P = reference)
+ggsave(file.path(figures_dir, "sig_SBS5.png"), height = height, width = width)
+
+plot_sig(sampler, 5, reference_P = reference)
+ggsave(file.path(figures_dir, "sig_SBS18.png"), height = height, width = width)
+
+plot_sig(sampler, 6, reference_P = reference)
+ggsave(file.path(figures_dir, "sig_SBS13.png"), height = height, width = width)
+
+plot_sig(sampler, 7, reference_P = reference)
+ggsave(file.path(figures_dir, "sig_SBS8.png"), height = height, width = width)
+
+plot_sig(sampler, 8, reference_P = reference)
+ggsave(file.path(figures_dir, "sig_SBS9.png"), height = height, width = width)
+```
+
+```{r}
+plot_summary(list("sampler" = sampler))
+ggsave(file.path(figures_dir, "summary.png"), height = 8, width = 5)
+```
+
+```{r}
+plot_label_switching(sampler)
+ggsave(file.path(figures_dir, "label_switcing.png"), height = 10, width = 20)
+```
+
+```{r}
+assignments <- assign_signatures_ensemble(sampler, reference)
+assignments$vote
+```

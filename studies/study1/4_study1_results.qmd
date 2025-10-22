@@ -1,0 +1,624 @@
+---
+title: "Analyzing study 1 results"
+author: "Jenna Landy"
+---
+
+This analysis assumes `study1_processing.R` has been run, and that the metrics are in `processed/study1/metrics.csv`.
+
+```{r}
+library(bayesNMF)
+library(tidyverse)
+library(ggplot2)
+library(ggridges)
+library(grid)
+library(gridExtra)
+library(glue)
+library(cowplot)
+source("../study1_visualization_functions.R")
+
+data_dir <- "../../data/study1"
+output_dir <- "../../output/study1"
+processed_dir <- "../../processed/study1_save"
+figures_dir <- "../../figures/study1"
+```
+
+```{r}
+color_list <- c(
+  'P_E' = "#D55E00",    # dark orange
+  'P_E_MH' = "#E69F00", # orange
+  'P_G' = "#0072B2",    # dark blue
+  'P_T_MH' = "#56B4E9", # blue
+  'N_E' = "black",
+  'N_T' = "grey"
+)
+
+color_names <- c(
+  'P_E' = "Poisson-Exponential",
+  'P_E_MH' = "Poisson-Exponential + MH",
+  'P_G' = "Poisson-Gamma",
+  'P_T_MH' = "Poisson-Truncated Normal + MH",
+  'N_E' = "Normal-Exponential",
+  'N_T' = "Normal-Truncated Normal"
+)
+
+prior_colors <- c(
+  'Exponential' = "#E69F00",
+  "Gamma / Truncated Normal" = "#56B4E9",
+  "Truncated Normal" = "#56B4E9"
+)
+```
+
+The `metrics` dataframe holds metrics comparing each result to ground truth.
+```{r}
+metrics <- read_csv(file.path(processed_dir, "metrics.csv"))
+metrics %>%
+  group_by(N, G, likelihood, prior, MH) %>%
+  tally() %>%
+  arrange(n)
+```
+
+```{r}
+metrics %>%
+  pivot_longer(c(min_sim, total_minutes, RMSE, KL, iters), names_to = "metric", values_to = "value") %>%
+  arrange(N) %>%
+  mutate(
+    N = paste(N, "Signatures"),
+    N = factor(N, levels = unique(N)),
+    metric = case_when(
+      metric == "min_sim" ~ "Minimum Cosine Similarity",
+      metric == "total_minutes" ~ "Total Minutes",
+      metric == "RMSE" ~ "RMSE",
+      metric == "KL" ~ "KL Divergence",
+      metric == "iters" ~ "Iterations"
+    ),
+    model = paste(likelihood, prior, sep = "_"),
+    model = ifelse(MH, paste(model, "MH", sep = "_"), model),
+    model = factor(model, levels = names(color_list))
+  ) %>%
+  ggplot(aes(x = as.factor(G), y = value, color = model)) +
+  facet_grid(rows = vars(metric), cols = vars(N), scales = "free") +
+  geom_boxplot() +
+  theme_bw() +
+  labs(
+    x = "Sample Size",
+    color = "Model"
+  ) +
+  theme(
+    axis.title.y = element_blank(),
+    legend.position = 'top',
+    legend.justification = 'left'
+  ) +
+  scale_color_manual(breaks = names(color_list), values = color_list, labels = color_names)
+ggsave(file.path(figures_dir, "study1_metrics.png"), width = 10, height = 10)
+```
+
+The following dataframes hold metrics comparing each result to the other results for the same dataset. Models are compared to others with the same prior (Gamma is compared to the Truncated Normal).
+```{r}
+Poisson_vs_Normal_MAPs <- read_csv(file.path(processed_dir, "Poisson_vs_Normal_MAPs.csv"))
+head(Poisson_vs_Normal_MAPs)
+
+Standard_vs_MH_MAPs <- read_csv(file.path(processed_dir, "Standard_vs_MH_MAPs.csv"))
+head(Standard_vs_MH_MAPs)
+
+Standard_vs_Standard_repeated_MAPs <- read_csv(file.path(processed_dir, "Standard_vs_Standard_repeated_MAPs.csv"))
+head(Standard_vs_Standard_repeated_MAPs)
+```
+
+Result 1: For fixed rank, Normal and Poisson models result in very similar MAP point estimates
+Looking at exponential priors first, directly compare the metrics of each dataset between Poisson (non-MH) and Normal models. 
+```{r}
+Poisson_vs_Normal_MAPs %>%
+  arrange(P_min_cosine) %>%
+  select(N, G, rep, P_min_cosine, E_min_cosine)
+
+mean(Poisson_vs_Normal_MAPs$P_min_cosine > 0.99)
+mean(Poisson_vs_Normal_MAPs$E_min_cosine > 0.99)
+
+
+Standard_vs_MH_MAPs %>%
+  arrange(P_min_cosine) %>%
+  select(N, G, rep, P_min_cosine, E_min_cosine)
+
+mean(Standard_vs_MH_MAPs$P_min_cosine > 0.99)
+mean(Standard_vs_MH_MAPs$E_min_cosine > 0.99)
+
+
+Standard_vs_Standard_repeated_MAPs %>%
+  arrange(P_min_cosine) %>%
+  select(N, G, rep, P_min_cosine, E_min_cosine)
+
+mean(Standard_vs_Standard_repeated_MAPs$P_min_cosine > 0.99)
+mean(Standard_vs_Standard_repeated_MAPs$E_min_cosine > 0.99)
+
+metrics %>%
+  filter(MH, likelihood == "P", N == 16) %>%
+  pull(total_minutes) %>%
+  summary()
+
+metrics %>%
+  filter(!MH, likelihood == "P", N == 16) %>%
+  mutate(total_hours = total_minutes / 60) %>%
+  pull(total_hours) %>%
+  summary()
+```
+
+
+```{r}
+threshold <- 0.95
+fontsize = 25
+Poisson_vs_Normal_MAPs %>%
+  rbind(Standard_vs_MH_MAPs) %>%
+  rbind(Standard_vs_Standard_repeated_MAPs) %>%
+  mutate(
+    P_under = P_min_cosine < threshold,
+    E_under = E_min_cosine < threshold
+  ) %>%
+  group_by(compare, prior) %>%
+  summarize(
+    n_P = sum(P_under),
+    n_E = sum(E_under),
+    n = length(P_under)
+  )
+
+PN_title = "Poisson\n-vs-\nNormal"
+MH_title = "Poisson\n-vs-\nPoisson + MH"
+PR_title = "Poisson\n-vs-\nPoisson"
+
+fig1A <- Poisson_vs_Normal_MAPs %>%
+  rbind(Standard_vs_MH_MAPs) %>%
+  rbind(Standard_vs_Standard_repeated_MAPs) %>%
+  mutate(
+    compare = case_when(
+      compare == 'Normal<vs>Poisson' ~ PN_title,
+      compare == 'Poisson<vs>Poisson_MH' ~ MH_title,
+      compare == 'Poisson<vs>Poisson_repeated' ~ PR_title
+    ),
+    compare = factor(compare, levels = c(PN_title, MH_title, PR_title))
+  ) %>%
+  select(N, G, rep, prior, compare, P_min_cosine, E_min_cosine) %>%
+  pivot_longer(cols = c(P_min_cosine, E_min_cosine)) %>%
+  mutate(
+    name = ifelse(
+      name == "E_min_cosine",
+      "Exposures Matrix (E)",
+      "Signatures Matrix (P)"
+    )
+  ) %>%
+  ggplot(aes(x = value, y = prior, fill = prior, color = prior, alpha = prior)) +
+  facet_grid(cols = vars(name), rows = vars(compare), switch = 'y') +
+  geom_vline(xintercept = 0.99, linetype = "dashed") +
+  geom_density_ridges(scale = 2, bandwidth = 0.001, linewidth = 1) +
+  labs(
+    x = "Minimum cosine similarity between MAP estimates",
+    fill = "Prior", color = "Prior", alpha = "Prior"
+  ) +
+  scale_x_continuous(breaks = seq(0.9, 1, 0.05), limits = c(threshold, 1.01)) +
+  theme(
+    strip.text.y.left = element_text(angle = 0),
+    text = element_text(size = fontsize),
+    axis.text.y.left = element_blank(),
+    axis.ticks.y.left = element_blank(),
+    axis.title.y = element_blank(),
+    legend.position = "top",
+    legend.justification = "left"
+  ) +
+  scale_fill_manual(breaks = names(prior_colors), values = prior_colors) +
+  scale_color_manual(breaks = names(prior_colors), values = prior_colors) +
+  scale_alpha_manual(values = c("Exponential" = 0.5, "Gamma / Truncated Normal" = 0))
+```
+
+Poisson + MH is much faster than standard
+```{r}
+# plot total_minutes for Poisson (standard) vs Poisson + MH
+dat <- metrics %>%
+  filter(likelihood == "P") %>%
+  mutate(
+    prior = case_when(
+      prior == "E" ~ "Exponential",
+      prior %in% c("T", "G") ~ "Gamma / Truncated Normal"
+    ),
+    MH = if_else(MH, "MH", "non_MH")
+  ) %>%
+  select(N, G, rep,prior, MH, total_minutes) %>% 
+  data.frame() %>%
+  pivot_wider(names_from = MH, values_from = total_minutes) 
+
+fig1B <- dat %>%
+  arrange(N) %>%
+  mutate(
+    speedup = non_MH / MH,
+    N = paste(N, "Signatures"),
+    N = factor(N, levels = rev(unique(N)))
+  ) %>%
+  ggplot(aes(x = as.factor(G), y = speedup, color = prior, fill = prior, alpha = prior)) +
+  facet_grid(rows = vars(N), switch = 'y') +
+  geom_boxplot()+
+  labs(
+    x = "Sample Size",
+    y = "Speedup (Poisson / Poisson + MH)",
+    color = "Prior", fill = "Prior", alpha = "Prior"
+  ) +
+  theme(
+    text = element_text(size = fontsize),
+    legend.position = "top",
+    legend.justification = "left",
+    strip.placement = 'outside'
+  ) +
+  scale_fill_manual(breaks = names(prior_colors), values = prior_colors) +
+  scale_color_manual(breaks = names(prior_colors), values = prior_colors) +
+  scale_alpha_manual(values = c("Exponential" = 0.5, "Gamma / Truncated Normal" = 0))
+```
+
+```{r}
+metrics_names = list(
+  'min_sim' = 'Minimum Signature\nCosine Similarity',
+  'KL' = 'Reconstruction\nKL Divergence',
+  'RMSE' ='Reconstruction\nRMSE',
+  'total_minutes' = 'Runtime (Minutes)'
+)
+fig1C <- metrics %>%
+  filter(MH) %>%
+  arrange(N, G) %>%
+  mutate(
+    prior = case_when(
+      prior == "E" ~ "Exponential",
+      prior %in% c("T", "G") ~ "Gamma / Truncated Normal"
+    ),
+    N = paste(N, "Signatures"),
+    N = factor(N, levels = unique(N)),
+    G = factor(G, levels = unique(G))
+  ) %>%
+  pivot_longer(
+    cols = c(min_sim, RMSE, KL, total_minutes),
+    names_to = 'metric'
+  ) %>%
+  mutate(
+    metric = factor(metric, levels = names(metrics_names), labels = metrics_names)
+  ) %>%
+  ggplot(aes(x = as.factor(G), y = value, color = prior, fill = prior, alpha = prior)) +
+  facet_grid(rows = vars(metric), cols = vars(N), switch = 'y', scales = 'free') +
+  geom_boxplot() +
+  labs(
+    x = 'Sample Size',
+    color = 'Prior', fill = 'Prior', alpha = 'Prior'
+  ) +
+  theme(
+    strip.text.y.left = element_text(angle = 0),
+    text = element_text(size = fontsize),
+    legend.position = "top",
+    legend.justification = "left",
+    strip.placement = 'outside',
+    axis.title.y = element_blank()
+  ) +
+  scale_color_manual(breaks = names(prior_colors), values = prior_colors) +
+  scale_fill_manual(breaks = names(prior_colors), values = prior_colors) +
+  scale_alpha_manual(values = c("Exponential" = 0.5, "Gamma / Truncated Normal" = 0))
+```
+
+```{r}
+# extract legend from fig1A
+g_legend <- function(a.gplot) {
+  # from https://stackoverflow.com/questions/13649473/add-a-common-legend-for-combined-ggplots
+  tmp <- ggplot_gtable(ggplot_build(a.gplot))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)
+}
+
+legend <- g_legend(fig1A)
+blank <- ggplot() + theme_void()
+margin <- 0.02
+
+fig1A_with_caption <- ggdraw(
+  fig1A + 
+    theme(legend.position = "none") +
+    ggtitle("A. Agreement of MAP estimates") +
+    labs(
+      x = "Minimum cosine similarity"
+    ) +
+    theme(
+      plot.title.position = "plot"
+    )
+)
+
+# A + B in one row with panel tags
+rowAB <- plot_grid(
+  fig1A_with_caption, 
+  blank,
+  fig1B + 
+    theme(legend.position = "none") + 
+    ggtitle("B. Relative Efficiency\n     of Poisson + MH relative to Poisson") +
+    theme(
+      plot.title.position = "plot",
+      axis.title.y = element_blank()
+    ),
+  nrow = 1, rel_widths = c(3, margin*3, 2),
+  # labels = c("A", "B"),
+  label_size = 18, label_fontface = "bold",
+  label_x = 0.01, label_y = 0.99, hjust = 0, vjust = 1
+)
+
+# C with its own tag
+panelC <- ggdraw(
+  fig1C + 
+    theme(
+      legend.position = "none",
+      plot.title.position = "plot"
+    ) +
+    ggtitle("C. Poisson + MH metrics as dimensions change")
+) 
+  # draw_label("C", x = 0.01, y = 0.99,
+  #            hjust = 0, vjust = 1, fontface = "bold", size = 18)
+
+# stack legend, (A|B), and C
+fig1 <- plot_grid(
+  legend,
+  rowAB,
+  blank,
+  panelC,
+  ncol = 1,
+  rel_heights = c(0.08, 1, margin, 1)  # adjust to taste
+)
+
+ggsave(file.path(figures_dir, "study1.png"), fig1, width = 20, height = 20)
+```
+
+## Figure 2: comparing credible intervals
+
+```{r}
+Standard_vs_MH_CIs <- read_csv(file.path(processed_dir, "Standard_vs_MH_CIs.csv"))
+head(Standard_vs_MH_CIs)
+colnames(Standard_vs_MH_CIs)
+```
+
+```{r}
+filled_alpha = 1
+fig_Ps <- Standard_vs_MH_CIs %>%
+  select(N, G, rep, prior, compare, P_median_width_diff) %>%
+  arrange(N, G, prior, compare) %>%
+  mutate(
+    value = P_median_width_diff,
+    transparency = ifelse(compare == "Poisson<vs>Poisson_MH", filled_alpha, 0),
+    g = paste0(prior, compare, G),
+    g = factor(g, levels = unique(g)),
+    N = paste(N, "Signatures"),
+    N = factor(N, levels = unique(N))
+  ) %>%
+  ggplot(aes(
+    x = as.factor(G), 
+    y = value, 
+    fill = prior, 
+    group = g,
+    alpha = transparency
+  )) +
+  facet_grid(rows = vars(N), scales = 'free') +
+  geom_boxplot(color = 'black', size = 0.1) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    y = "Median Difference in CI width: Poisson - (Poisson + MH)\nScale = Probability",
+    color = "Prior", fill = "Prior",
+    x = "Sample Size",
+    title = 'Signatures Matrix',
+    color = "Prior", fill = "Prior"
+  ) +
+  theme_bw() +
+  theme(legend.position = "bottom") +
+  scale_color_manual(breaks = names(prior_colors), values = prior_colors) +
+  scale_fill_manual(breaks = names(prior_colors), values = prior_colors) +
+  scale_alpha_continuous(
+    breaks = c(0, filled_alpha),
+    labels = c("Poisson vs Poisson", "Poisson vs Poisson + MH"),
+    guide  = guide_legend(
+      override.aes = list(
+        fill  = "black",
+        alpha = c(0, filled_alpha)
+      )
+    )
+  ) +
+  guides(color = "none", fill = "none")
+
+fig_Es <- Standard_vs_MH_CIs %>%  
+  select(N, G, rep, prior, compare, E_median_width_diff) %>%
+  arrange(N, G, prior, compare) %>%
+  mutate(
+    value = E_median_width_diff,
+    transparency = ifelse(compare == "Poisson<vs>Poisson_MH", filled_alpha, 0),
+    g = paste0(prior, transparency, G),
+    g = factor(g, levels = unique(g)),
+    N = paste(N, "Signatures"),
+    N = factor(N, levels = unique(N))
+  ) %>%
+  ggplot(aes(x = as.factor(G), y = value, fill = prior, alpha = transparency, group = g)) +
+  facet_grid(rows = vars(N), scales = 'free') +
+  geom_boxplot(color = 'black', size = 0.1) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    y = "Median Difference in CI width: Poisson - (Poisson + MH)\nScale = Proportion of Sample-Wise Mutations",
+    title = 'Exposures Matrix',
+    x = "Sample Size",
+    alpha = "Comparison"
+  ) +
+  theme_bw() +
+  theme(legend.position = "bottom") +
+  scale_alpha_continuous(breaks = c(0, filled_alpha)) +
+  guides(alpha = "none") +
+  scale_color_manual(breaks = names(prior_colors), values = prior_colors) +
+  scale_fill_manual(breaks = names(prior_colors), values = prior_colors)
+
+p <- plot_grid(fig_Ps, fig_Es, ncol = 2)
+
+ggsave(file.path(figures_dir, "compare_widths_medians.png"), p, width = 10, height = 10)
+```
+
+```{r}
+fig_Ps <- Standard_vs_MH_CIs %>%
+  select(N, G, rep, prior, compare, P_q10_width_diff, P_q90_width_diff) %>%
+  pivot_longer(cols = c(P_q10_width_diff, P_q90_width_diff)) %>%
+  arrange(N, G, prior, compare) %>%
+  mutate(
+    name = ifelse(name == "P_q10_width_diff", "10th percentile", "90th percentile"),
+    compare = ifelse(compare == "Poisson<vs>Poisson_MH", 0.8, 0),
+    g = paste0(prior, compare, G),
+    g = factor(g, levels = unique(g)),
+    N = paste(N, "Signatures"),
+    N = factor(N, levels = unique(N))
+  ) %>%
+  ggplot(aes(x = as.factor(G), y = value, fill = prior, alpha = compare, group = g)) +
+  facet_grid(rows = vars(N), cols = vars(name), scales = 'free') +
+  geom_boxplot(color = 'black', size = 0.1) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    y = "Difference in CI width: Poisson - (Poisson + MH)\nScale = Probability",
+    title = 'Signatures Matrix',
+    fill = "Prior",
+    x = "Sample Size"
+  ) +
+  theme_bw() +
+  theme(legend.position = "bottom") +
+  scale_alpha_continuous(breaks = c(0, 0.8)) +
+  guides(alpha = "none") +
+  scale_fill_manual(breaks = names(prior_colors), values = prior_colors)
+
+fig_Es <- Standard_vs_MH_CIs %>%
+  select(N, G, rep, prior, compare, E_q10_width_diff, E_q90_width_diff) %>%
+  pivot_longer(cols = c(E_q10_width_diff, E_q90_width_diff)) %>%
+  arrange(N, G, prior, compare) %>%
+  mutate(
+    name = ifelse(name == "E_q10_width_diff", "10th percentile", "90th percentile"),
+    transparency = ifelse(compare == "Poisson<vs>Poisson_MH", 0.6, 0),
+    g = paste0(prior, transparency, G),
+    g = factor(g, levels = unique(g)),
+    N = paste(N, "Signatures"),
+    N = factor(N, levels = unique(N))
+  ) %>%
+  ggplot(aes(x = as.factor(G), y = value, fill = prior, alpha = transparency, group = g)) +
+  facet_grid(rows = vars(N), cols = vars(name), scales = 'free') +
+  geom_boxplot(color = 'black', size = 0.1) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    y = "Difference in CI width: Poisson - (Poisson + MH)\nScale = Proportion of Sample-Wise Mutations",
+    title = 'Exposures Matrix',
+    alpha = "Comparison",
+    x = "Sample Size"
+  ) +
+  scale_alpha_continuous(
+    breaks = c(0, 0.6),
+    labels = c("Poisson vs Poisson", "Poisson vs Poisson + MH"),
+    guide  = guide_legend(
+      override.aes = list(
+        fill  = "black",
+        alpha = c(0, 0.6)
+      )
+    )
+  ) +
+  guides(fill = "none", color = "none") +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    axis.title.y = element_blank()
+  ) +
+  scale_fill_manual(breaks = names(prior_colors), values = prior_colors)
+
+p <- plot_grid(fig_Ps, fig_Es, ncol = 2, rel_widths = c(1.1, 1))
+
+ggsave(file.path(figures_dir, "compare_widths.png"), p, width = 10, height = 10)
+```
+
+```{r}
+P_10 <- Standard_vs_MH_CIs %>%
+  select(N, G, rep, prior, compare, P_q10_width_diff) %>%
+  arrange(N, G, prior, compare) %>%
+  mutate(
+    value = P_q10_width_diff,
+    transparency = ifelse(compare == "Poisson<vs>Poisson_MH", 0.6, 0),
+    g = paste0(prior, transparency, G),
+    g = factor(g, levels = unique(g)),
+    N = paste(N, "Signatures"),
+    N = factor(N, levels = unique(N))
+  )
+P_90 <- Standard_vs_MH_CIs %>%
+  select(N, G, rep, prior, compare, P_q90_width_diff) %>%
+  arrange(N, G, prior, compare) %>%
+  mutate(
+    value = P_q90_width_diff,
+    transparency = ifelse(compare == "Poisson<vs>Poisson_MH", 0.6, 0),
+    g = paste0(prior, transparency, G),
+    g = factor(g, levels = unique(g)),
+    N = paste(N, "Signatures"),
+    N = factor(N, levels = unique(N))
+  )
+fig_Ps <- ggplot() +
+  geom_boxplot(data = P_10, aes(x = as.factor(G), y = value, color = '10th', fill = prior, alpha = transparency, group = g), size = 0.1) +
+  geom_boxplot(data = P_90, aes(x = as.factor(G), y = value, color = '90th', fill = prior, alpha = transparency, group = g), size = 0.1) +
+  facet_grid(rows = vars(N), scales = 'free') +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_color_manual(values = c('black', 'black')) +
+  scale_alpha_continuous(breaks = c(0, 0.6)) +
+  labs(
+    y = "Difference in CI width: Poisson - (Poisson + MH), Scale = Probability\n10th percentile (negative) and 90th percentile (positive)",
+    title = 'Signatures Matrix',
+    color = "Percentile",
+    fill = "Prior",
+    x = "Sample Size"
+  ) +
+  theme_bw() +
+  theme(legend.position = "bottom") +
+  scale_alpha_continuous(breaks = c(0, 0.6)) +
+  guides(alpha = "none", color = "none") +
+  scale_fill_manual(breaks = names(prior_colors), values = prior_colors)
+
+E_10 <- Standard_vs_MH_CIs %>%
+  select(N, G, rep, prior, compare, E_q10_width_diff) %>%
+  arrange(N, G, prior, compare) %>%
+  mutate(
+    value = E_q10_width_diff,
+    transparency = ifelse(compare == "Poisson<vs>Poisson_MH", 0.6, 0),
+    g = paste0(prior, transparency, G),
+    g = factor(g, levels = unique(g)),
+    N = paste(N, "Signatures"),
+    N = factor(N, levels = unique(N))
+  )
+E_90 <- Standard_vs_MH_CIs %>%
+  select(N, G, rep, prior, compare, E_q90_width_diff) %>%
+  arrange(N, G, prior, compare) %>%
+  mutate(
+    value = E_q90_width_diff,
+    transparency = ifelse(compare == "Poisson<vs>Poisson_MH", 0.6, 0),
+    g = paste0(prior, transparency, G),
+    g = factor(g, levels = unique(g)),
+    N = paste(N, "Signatures"),
+    N = factor(N, levels = unique(N))
+  )
+fig_Es <- ggplot() +
+  geom_boxplot(data = E_10, aes(x = as.factor(G), y = value, color = 'white', fill = prior, alpha = transparency, group = g), show.legend = TRUE, size = 0.1) +
+  geom_boxplot(data = E_90, aes(x = as.factor(G), y = value, color = 'black', fill = prior, alpha = transparency, group = g), show.legend = FALSE, size = 0.1) +
+  facet_grid(rows = vars(N), scales = 'free') +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_color_manual(values = c('black', 'black')) +
+  labs(
+    y = "Difference in CI width: Poisson - (Poisson + MH), Scale = Number of Mutations\n10th percentile (negative) and 90th percentile (positive)",
+    title = 'Exposures Matrix',
+    x = "Sample Size",
+    alpha = "Comparison"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "bottom"
+  ) +
+  scale_alpha_continuous(
+    breaks = c(0, 0.6),
+    labels = c("Poisson vs Poisson", "Poisson vs Poisson + MH"),
+    guide = guide_legend(
+      override.aes = list(
+        fill  = "black",
+        alpha = c(0, 0.6)
+      )
+    )
+  ) +
+  guides(color = "none", fill = 'none') +
+  scale_fill_manual(breaks = names(prior_colors), values = prior_colors)
+
+p <- plot_grid(fig_Ps, fig_Es, ncol = 2)
+
+ggsave(file.path(figures_dir, "compare_widths_combo.png"), p, width = 13, height = 10)
+```

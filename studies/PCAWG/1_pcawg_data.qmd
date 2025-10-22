@@ -1,0 +1,78 @@
+---
+title: "Preparing PCAWG data"
+author: "Jenna Landy"
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(reshape2)
+
+data_path <- "../../data/PCAWG"
+processed_path <- "../../processed/PCAWG/matrices"
+```
+
+### 0. Download data from ICGC Legacy PCAWG
+
+First, the mutational counts data is downloaded from the ICGC Data Portal using the `aws` command line tool. Instructions for installing and configuring the `aws` cli: [https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html).
+
+ICGC Legacy PCAWG data can be accessed through the ICGC Data Portal. Official documentation: [https://docs.icgc-argo.org/docs/data-access/icgc-25k-data](https://docs.icgc-argo.org/docs/data-access/icgc-25k-data).
+
+```{bash}
+# navigate to data directory
+cd data/PCAWG
+
+# view all accessible PCAWG data
+aws s3 ls s3://icgc25k-open/PCAWG/ --endpoint-url https://object.genomeinformatics.org --no-sign-request
+
+# download mutational counts data zip file
+aws s3 cp s3://icgc25k-open/PCAWG/mutational_signatures/Input_Data_PCAWG7_23K_Spectra_DB/Mutation_Catalogs_--_Spectra_of_Individual_Tumours/WGS_PCAWG_2018_02_09.zip . --endpoint-url https://object.genomeinformatics.org --no-sign-request
+
+# unzip mutational counts data
+unzip WGS_PCAWG_2018_02_09.zip -d WGS_PCAWG_2018_02_09
+```
+
+### 1. Load Mutational Counts data and separate by histology
+```{r}
+counts <- read.csv(file.path(data_path,"WGS_PCAWG_2018_02_09", "WGS_PCAWG.96.csv"))
+rownames(counts) <- paste(
+  substr(counts$Trinucleotide, 1, 1),
+  '[',counts$Mutation.type, ']',
+  substr(counts$Trinucleotide, 3, 3),
+  sep = ""
+)
+counts <- counts %>% select(-Trinucleotide, -Mutation.type)
+
+histology <- sapply(colnames(counts), function(name) {str_split(name, "\\.\\.")[[1]][1]})
+
+M_matrices <- list()
+for (h in unique(histology)) {
+  M_matrices[[h]] <- counts %>%
+    dplyr::select(starts_with(h))
+}
+```
+
+```{r}
+length(unique(histology))
+```
+
+### 2. Save M matrices for histology groups with more than 10 samples
+```{r}
+for (h in unique(histology)) {
+  if (grepl("Benign", h)) {
+    next
+  }
+  if (ncol(M_matrices[[h]]) > 10) {
+    M <- M_matrices[[h]]
+    h <- str_replace(h, "\\.", "_")
+    write.csv(M, file.path(processed_path, paste0(h, ".csv")))
+  }
+}
+```
+
+```{r}
+sample_sizes = sapply(unique(histology), function(h) {
+  ncol(M_matrices[[h]])
+})
+sum(sample_sizes >= 10)
+```

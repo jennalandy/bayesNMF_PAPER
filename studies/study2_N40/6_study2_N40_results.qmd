@@ -1,0 +1,214 @@
+---
+title: "Analyzing bayesNMF results on study 2 data with a maximum of N = 40 signatures"
+author: "Jenna Landy"
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(bayesNMF)
+library(ggh4x)
+library(cowplot)
+library(glue)
+
+data_dir <- "../../data/study2"
+output_dir <- "../../output/study2_N40"
+processed_dir <- "../../processed/study2_N40"
+figures_dir <- "../../figures/study2_N40"
+```
+
+```{r}
+color_list <- c(
+  'P_E' = "#D55E00",    # dark orange
+  'P_E_MH' = "#E69F00", # orange
+  'P_E_MH_SBFI' = "#E69F00", # orange
+  'P_E_MH_BIC' = "#F0E442", # yellow
+  "signatureanalyzer_L1" = "#CC79A7", # pink
+  'P_G' = "#56B4E9",    # dark blue
+  'P_T_MH' = "#56B4E9", # dark blue
+  'P_T_MH_SBFI' = "#0072B2", # blue
+  'P_T_MH_BIC' = "#56B4E9", # light blue
+  "signatureanalyzer_L2" = "#009E73", # green
+  'N_E' = "black",
+  'N_T' = "grey"
+)
+
+color_names <- c(
+  'P_E' = "Poisson-Exponential",
+  'P_E_MH' = "Poisson-Exponential + MH",
+  'P_E_MH_SBFI' = "Poisson-Exponential + MH SBFI",
+  'P_E_MH_BIC' = "Poisson-Exponential + MH Heuristic",
+  "signatureanalyzer_L1" = "SignatureAnalyzer L1",
+  'P_G' = "Poisson-Gamma",
+  'P_T_MH' = "Poisson-Truncated Normal + MH",
+  'P_T_MH_SBFI' = "Poisson-Truncated Normal + MH SBFI",
+  'P_T_MH_BIC' = "Poisson-Truncated Normal + MH Heuristic",
+  'N_E' = "Normal-Exponential",
+  'N_T' = "Normal-Truncated Normal",
+  "signatureanalyzer_L2" = "SignatureAnalyzer L2"
+)
+
+prior_colors <- c(
+  'Exponential' = "#E69F00",
+  "Gamma / Truncated Normal" = "#56B4E9",
+  "Truncated Normal" = "#56B4E9"
+)
+```
+
+```{r}
+results <- read.csv(file.path(processed_dir, "metrics.csv")) %>%
+  filter(
+    grepl('signatureanalyzer', model) | grepl('SBFI', model) | grepl('BIC', model)
+  )
+
+results %>%
+  group_by(model) %>%
+  tally()
+```
+
+## Figure 3: 
+
+```{r}
+results %>%
+  mutate(
+    model = factor(model, levels = names(color_list))
+  ) %>%
+  mutate(
+    rank_bias = learned_rank - N,
+    total_minutes = log2(total_minutes)
+  ) %>%
+  pivot_longer(c(precision, sensitivity, rank_bias, total_minutes), names_to = "metric", values_to = "value") %>%
+  mutate(
+    metric = factor(metric, levels = c('rank_bias','precision','sensitivity', 'total_minutes'), labels = c('Rank Bias','Precision','Sensitivity', 'log2(Total Minutes)'))
+  ) %>%
+  ggplot(aes(x = as.factor(N), y = value, color = model)) +
+  facet_grid(rows = vars(metric), scales = 'free', switch = 'y') +
+  geom_boxplot() +
+  labs(
+    x = "True Rank",
+    color = "Model"
+  ) +
+  theme(
+    text = element_text(size = 20),
+    legend.position = "top",
+    legend.justification = "left",
+    axis.title.y = element_blank(),
+    strip.text.y.left = element_text(angle = 0),
+    strip.placement = 'outside'
+  ) +
+  scale_color_manual(
+    breaks = names(color_list),
+    labels = color_names,
+    values = color_list
+  ) +
+  guides(
+    color = guide_legend(nrow = 2, byrow = TRUE)
+  )
+ggsave(file.path(figures_dir, "rank_metrics_aligned.png"), width = 15, height = 13)
+```
+
+
+## Figure 3: rank accuracy, sensitivity, and precision
+
+```{r}
+each = length(unique(results$model))
+truth <- data.frame(
+  N = rep(1:20, each = each),
+  learned_rank = rep(1:20, each = each),
+  model = rep(unique(results$model), 20)
+)
+
+fig_A <- results %>%
+  group_by(model, N, learned_rank) %>%
+  summarise(
+    n = n()
+  ) %>%
+  mutate(
+    metric = 'Estimated\nRank\nAccuracy'
+  ) %>%
+  ggplot() +
+  facet_grid2(cols = vars(model), rows = vars(metric), switch = 'y') +
+  geom_tile(data = truth, aes(x = N, y = learned_rank), fill = 'red', alpha = 0.5) +
+  geom_tile(aes(x = N, y = learned_rank, fill = n), width = 0.8, height = 0.8) +
+  geom_text(aes(x = N, y = learned_rank, label = n)) +
+  labs(
+    fill = "Count"
+  ) +
+  theme(
+    strip.text.y.left = element_text(angle = 0),
+    text = element_text(size = 20),
+    strip.placement = 'outside',
+    axis.title.y = element_blank(),
+    axis.title.x = element_blank()
+  ) +
+  scale_x_continuous(breaks = c(5, 10, 15, 20))
+ 
+fig_BC <- results %>%
+  arrange(N) %>%
+  mutate(N = factor(N, levels = unique(N))) %>%
+  pivot_longer(c(precision, sensitivity), names_to = "metric", values_to = "value") %>%
+  mutate(
+    metric = ifelse(metric == 'precision', 'Precision', 'Sensitivity')
+  ) %>%
+  ggplot(aes(x = as.factor(N), y = value)) +
+  facet_grid2(
+    cols = vars(model), 
+    rows = vars(metric), 
+    switch = 'y', scales = 'free_y',
+    axes = "x"
+  ) +
+  geom_boxplot() +
+  labs(
+    x = "True Rank"
+  ) +
+  theme(
+    strip.text.y.left = element_text(angle = 0),
+    text = element_text(size = 20),
+    strip.placement = 'outside',
+    axis.title.y = element_blank(),
+  ) +
+  scale_x_discrete(breaks = c(0, 5, 10, 15, 20))
+```
+
+
+```{r}
+g_legend <- function(a.gplot) {
+  # from https://stackoverflow.com/questions/13649473/add-a-common-legend-for-combined-ggplots
+  tmp <- ggplot_gtable(ggplot_build(a.gplot))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)
+}
+legend <- g_legend(fig_A)
+blank <- ggplot() + theme_void()
+
+col1 <- plot_grid(
+  fig_A + theme(legend.position = "none"),
+  fig_BC,
+  ncol = 1,
+  rel_heights = c(1, 2)
+)
+col2 <- plot_grid(
+  legend, blank, blank,
+  ncol = 1,
+  rel_heights = c(1, 1, 1)
+)
+fig <- plot_grid(
+  col1,
+  col2,
+  ncol = 2,
+  rel_widths = c(1, 0.1)
+)
+ggsave(file.path(figures_dir, "rank_metrics.png"), fig, width = 20, height = 20)
+```
+
+## Figure: label switching diagnostic
+
+```{r eval = FALSE}
+samplers <- list()
+for (N in c(1, 5, 10, 15, 20)) {
+  print(N)
+  samplers[[as.character(N)]] <- readRDS(file.path(output_dir, "P_T_MH_SBFI", glue("N{N}_G64_rep1_withsamples"), "sampler.rds"))
+  plot(samplers[[as.character(N)]], sigs = TRUE)
+}
+```

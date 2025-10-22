@@ -1,4 +1,4 @@
-*.png
+*.DS_Store
 *.csv
 *.rds
 data/PCAWG-UCSC/pcawg_specimen_histology_August2016_v9_donor
