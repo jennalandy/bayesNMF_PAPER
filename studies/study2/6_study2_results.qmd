@@ -10,49 +10,12 @@ library(bayesNMF)
 library(ggh4x)
 library(cowplot)
 library(glue)
+library(ggpattern)
 
 data_dir <- "../../data/study2"
 output_dir <- "../../output/study2"
 processed_dir <- "../../processed/study2"
 figures_dir <- "../../figures/study2"
-```
-
-```{r}
-color_list <- c(
-  'P_E' = "#D55E00",    # dark orange
-  'P_E_MH' = "#E69F00", # orange
-  'P_E_MH_SBFI' = "#E69F00", # orange
-  'P_E_MH_BIC' = "#F0E442", # yellow
-  "signatureanalyzer_L1" = "#CC79A7", # pink
-  'P_G' = "#56B4E9",    # dark blue
-  'P_T_MH' = "#56B4E9", # dark blue
-  'P_T_MH_SBFI' = "#0072B2", # blue
-  'P_T_MH_BIC' = "#56B4E9", # light blue
-  "signatureanalyzer_L2" = "#009E73", # green
-  'N_E' = "black",
-  'N_T' = "grey"
-)
-
-color_names <- c(
-  'P_E' = "Poisson-Exponential",
-  'P_E_MH' = "Poisson-Exponential + MH",
-  'P_E_MH_SBFI' = "Poisson-Exponential + MH SBFI",
-  'P_E_MH_BIC' = "Poisson-Exponential + MH Heuristic",
-  "signatureanalyzer_L1" = "SignatureAnalyzer L1",
-  'P_G' = "Poisson-Gamma",
-  'P_T_MH' = "Poisson-Truncated Normal + MH",
-  'P_T_MH_SBFI' = "Poisson-Truncated Normal + MH SBFI",
-  'P_T_MH_BIC' = "Poisson-Truncated Normal + MH Heuristic",
-  'N_E' = "Normal-Exponential",
-  'N_T' = "Normal-Truncated Normal",
-  "signatureanalyzer_L2" = "SignatureAnalyzer L2"
-)
-
-prior_colors <- c(
-  'Exponential' = "#E69F00",
-  "Gamma / Truncated Normal" = "#56B4E9",
-  "Truncated Normal" = "#56B4E9"
-)
 ```
 
 ```{r}
@@ -73,7 +36,7 @@ results %>%
   tally()
 ```
 
-## Figure 3: 
+## Results
 
 ```{r}
 results %>%
@@ -154,70 +117,84 @@ results %>%
 ggsave(file.path(figures_dir, "rank_metrics_aligned_P_T_MH_SBFI.png"), width = 15, height = 13)
 ```
 
-## Figure 3: rank accuracy, sensitivity, and precision
+## Greyscale compatable version
 
 ```{r}
-each = length(unique(results$model))
-truth <- data.frame(
-  N = rep(1:20, each = each),
-  learned_rank = rep(1:20, each = each),
-  model = rep(unique(results$model), 20)
+model_order <- c(
+  'P_T_MH_SBFI', 'P_T_MH_BIC','signatureanalyzer_L2',
+  'P_E_MH_SBFI', 'P_E_MH_BIC','signatureanalyzer_L1'
 )
 
-fig_A <- results %>%
-  group_by(model, N, learned_rank) %>%
-  summarise(
-    n = n()
+plot_dat <- results %>%
+  mutate(
+    model = factor(model, levels = model_order),
+    rank_bias = learned_rank - N,
+    prior = ifelse(model %in% c('P_T_MH_SBFI', 'P_T_MH_BIC','signatureanalyzer_L2'), "TN/L2", "E/L1"),
+    prior = factor(prior, levels = c("TN/L2", "E/L1")),
+    method = case_when(
+      grepl('signatureanalyzer', model) ~ "SignatureAnalyzer",
+      grepl('SBFI', model) ~ "bayesNMF, SBFI",
+      grepl('BIC', model) ~ "bayesNMF, Heuristic",
+      TRUE ~ "none"
+    ),
+    method = factor(method, levels = names(shapes), labels = names(shapes)),
+    angle = ifelse(grepl('signatureanalyzer_L2', model), 0, 90)
+  ) %>%
+  pivot_longer(
+    c(precision, sensitivity, rank_bias, total_minutes), 
+    names_to = "metric", values_to = "value"
   ) %>%
   mutate(
-    metric = 'Estimated\nRank\nAccuracy'
+    metric = factor(metric, levels = c('rank_bias','precision','sensitivity', 'total_minutes'), labels = c('Rank Bias','Precision','Sensitivity', 'Minutes'))
   ) %>%
-  ggplot() +
-  facet_grid2(cols = vars(model), rows = vars(metric), switch = 'y') +
-  geom_tile(data = truth, aes(x = N, y = learned_rank), fill = 'red', alpha = 0.5) +
-  geom_tile(aes(x = N, y = learned_rank, fill = n), width = 0.8, height = 0.8) +
-  geom_text(aes(x = N, y = learned_rank, label = n)) +
-  labs(
-    fill = "Count"
-  ) +
-  theme(
-    strip.text.y.left = element_text(angle = 0),
-    text = element_text(size = 20),
-    strip.placement = 'outside',
-    axis.title.y = element_blank(),
-    axis.title.x = element_blank()
-  ) +
-  scale_x_continuous(breaks = c(5, 10, 15, 20))
- 
-fig_BC <- results %>%
-  arrange(N) %>%
-  mutate(N = factor(N, levels = unique(N))) %>%
-  pivot_longer(c(precision, sensitivity), names_to = "metric", values_to = "value") %>%
+  arrange(N, prior, method, metric) %>%
   mutate(
-    metric = ifelse(metric == 'precision', 'Precision', 'Sensitivity')
+    group = interaction(metric, model, N),
+    group = factor(group, levels = unique(group))
+  )
+
+# plot points of outliers separately so that they are the right shape
+outliers_df <- plot_dat %>%
+  dplyr::select(group, value) %>%
+  group_by(group) %>%
+  summarize(
+    q1  = quantile(value, 0.25, na.rm = TRUE),
+    q3  = quantile(value, 0.75, na.rm = TRUE),
+    iqr = q3 - q1,
+    lo  = q1 - 1.5 * iqr,
+    hi  = q3 + 1.5 * iqr
   ) %>%
-  ggplot(aes(x = as.factor(N), y = value)) +
-  facet_grid2(
-    cols = vars(model), 
-    rows = vars(metric), 
-    switch = 'y', scales = 'free_y',
-    axes = "x"
-  ) +
-  geom_boxplot() +
-  labs(
-    x = "True Rank"
-  ) +
-  theme(
-    strip.text.y.left = element_text(angle = 0),
-    text = element_text(size = 20),
-    strip.placement = 'outside',
-    axis.title.y = element_blank(),
-  ) +
-  scale_x_discrete(breaks = c(0, 5, 10, 15, 20))
+  merge(plot_dat, by = "group") %>%
+  filter(
+    value < lo | value > hi
+  ) %>%
+  ungroup()
+
+# only plot boxplots if there is more than 1 unique value after removing outliers
+boxplot_df <- plot_dat %>%
+  dplyr::select(group, value) %>%
+  group_by(group) %>%
+  summarize(
+    q1  = quantile(value, 0.25, na.rm = TRUE),
+    q3  = quantile(value, 0.75, na.rm = TRUE),
+    iqr = q3 - q1,
+    lo  = q1 - 1.5 * iqr,
+    hi  = q3 + 1.5 * iqr
+  ) %>%
+  merge(plot_dat, by = "group") %>%
+  filter(value >= lo & value <= hi)  %>%
+  # within non-outlier groups, check if there is more than 1 unique value
+  dplyr::select(group, value) %>%
+  group_by(group) %>%
+  summarize(
+    count = length(unique(value))
+  ) %>%
+  merge(plot_dat, by = "group") %>%
+  filter(count > 1)
 ```
 
-
 ```{r}
+# extract legend from fig1A
 g_legend <- function(a.gplot) {
   # from https://stackoverflow.com/questions/13649473/add-a-common-legend-for-combined-ggplots
   tmp <- ggplot_gtable(ggplot_build(a.gplot))
@@ -225,36 +202,246 @@ g_legend <- function(a.gplot) {
   legend <- tmp$grobs[[leg]]
   return(legend)
 }
-legend <- g_legend(fig_A)
-blank <- ggplot() + theme_void()
 
-col1 <- plot_grid(
-  fig_A + theme(legend.position = "none"),
-  fig_BC,
-  ncol = 1,
-  rel_heights = c(1, 2)
+color_legend = c(
+      "bayesNMF SBFI" = "#2196F3",
+      "bayesNMF Heuristic" = "#4CAF50",
+      "SignatureAnalyzer" = "#F44336"
+    )
+
+
+shapes = list(
+  'P_E_MH_SBFI' = 2, # open upright triangle
+  'P_T_MH_SBFI' = 17, # filled in upright triangle
+  'P_E_MH_BIC' = 0,  # open square
+  'P_T_MH_BIC' = 15,  # filled in square
+  'signatureanalyzer_L1' = 6, # open upsidedown triangle
+  'signatureanalyzer_L2' = 25 # filled in upsidedown triangle
 )
-col2 <- plot_grid(
-  legend, blank, blank,
-  ncol = 1,
-  rel_heights = c(1, 1, 1)
+
+colors = list(
+  'P_E_MH_SBFI' = "#2196F3",
+  'P_T_MH_SBFI' = "#2196F3",
+  'P_E_MH_BIC' = "#4CAF50",
+  'P_T_MH_BIC' = "#4CAF50",
+  'signatureanalyzer_L1' = "#F44336",
+  'signatureanalyzer_L2' = "#F44336"
 )
-fig <- plot_grid(
-  col1,
-  col2,
-  ncol = 2,
-  rel_widths = c(1, 0.1)
+
+fills = list(
+  'P_E_MH_SBFI' = "white",
+  'P_T_MH_SBFI' = "#2196F3",
+  'P_E_MH_BIC' = "white",
+  'P_T_MH_BIC' = "#4CAF50",
+  'signatureanalyzer_L1' = "white",
+  'signatureanalyzer_L2' = "#F44336"
 )
-ggsave(file.path(figures_dir, "rank_metrics.png"), fig, width = 20, height = 20)
+
+
+names = list(
+  'P_E_MH_SBFI' = "bayesNMF SBFI",
+  'P_T_MH_SBFI' = "bayesNMF SBFI",
+  'P_E_MH_BIC' = "bayesNMF Heuristic",
+  'P_T_MH_BIC' = "bayesNMF Heuristic",
+  'signatureanalyzer_L1' = "SignatureAnalyzer",
+  'signatureanalyzer_L2' = "SignatureAnalyzer"
+)
+
+legend_plot <- expand.grid(
+  method = c("bayesNMF SBFI", "bayesNMF Heuristic", "SignatureAnalyzer"),
+  prior = c("Truncated Normal / L2", "Exponential / L1")
+) %>%
+  data.frame() %>%
+  mutate(i = 1:n()) %>%
+  ggplot(aes(x = i, y = 1, color = method, shape = method, fill = prior)) +
+  geom_point() +
+  scale_color_manual(
+    values = color_legend
+  ) +
+  scale_shape_manual(
+    values = c(
+      "bayesNMF SBFI" = 24,
+      "bayesNMF Heuristic" = 22,
+      "SignatureAnalyzer" = 25
+    )
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Truncated Normal / L2" = "black",
+      "Exponential / L1" = "white"
+    )
+  ) +
+  labs(
+    color = "Method",
+    shape = "Method",
+    fill = "Prior"
+  ) +
+  theme_light() +
+  theme(
+    legend.position = "top", 
+    legend.justification = "left",
+    text = element_text(size = 8),
+    legend.title = element_text(size = 10)
+  ) +
+  guides(
+    fill = guide_legend(override.aes = list(shape = 21)),
+    color = guide_legend()
+  )
+
+legend <- g_legend(legend_plot)
+ggsave("tmp.png", legend, width = 7, height = 4)
+```
+
+```{r}
+shapes = list(
+  'P_E_MH_SBFI' = 2, # open upright triangle
+  'P_T_MH_SBFI' = 17, # filled in upright triangle
+  'P_E_MH_BIC' = 0,  # open square
+  'P_T_MH_BIC' = 15,  # filled in square
+  'signatureanalyzer_L1' = 6, # open upsidedown triangle
+  'signatureanalyzer_L2' = 25 # filled in upsidedown triangle
+)
+
+pd <- position_dodge2(width = 1, preserve = "single")
+greyscale_plot <- function(levels, med_size = 1, legend_height = 0.1, no_x_title = FALSE, no_legend = FALSE) {
+  pl <- plot_dat %>% filter(N %in% levels)  %>%
+  mutate(
+    model = factor(model, levels = model_order),
+    method = factor(unlist(names)[as.character(model)], levels = base::names(color_legend)),
+    prior = factor(
+      ifelse(grepl("(_L2|_T_)", as.character(model)), "Truncated Normal / L2", "Exponential / L1"),
+      levels = c("Truncated Normal / L2", "Exponential / L1")
+    )
+  ) %>%
+  ggplot(aes(x = model, y = value, shape = model, color = model, fill = model, group = group)) +
+  facet_grid(rows = vars(metric), cols = vars(N),scales = 'free_y', switch = 'both') +
+  geom_point(
+    data = outliers_df %>% filter(N %in% levels) %>% mutate(model = factor(model, levels = model_order)), 
+    position = pd, 
+    size = 0.5, alpha = 0.3,
+    fill = "white"
+  ) +
+  geom_boxplot(
+    data = boxplot_df %>% filter(N %in% levels) %>% mutate(model = factor(model, levels = model_order)), 
+    color = "lightgrey", fill = "white", 
+    position = pd, 
+    outlier.shape = NA, show.legend = FALSE
+  ) +
+  stat_summary(
+    fun = median, geom = "point", size = med_size, 
+    position = pd
+  ) +
+  labs(
+    x = "True Rank",
+    fill = "Prior", shape = "Method"
+  ) +
+  theme_light() +
+  theme(
+    text = element_text(size = 12),
+    legend.position = "top",
+    legend.justification = "left",
+    legend.text = element_text(size = 9),
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.key.size = unit(0.4, "lines"),
+    strip.placement = 'outside',
+    strip.background = element_rect(fill = "white", color = 'grey'),
+    strip.text = element_text(color = "black"),
+    panel.grid.major = element_line(size = 0.1),
+    panel.grid.minor = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.spacing.x = unit(0, "lines"),
+    plot.background = element_rect(fill = "white")
+  )  +
+  scale_shape_manual(
+    name = "Method",
+    breaks = base::names(shapes),
+    values = shapes
+  ) +
+  scale_color_manual(
+    name = "Method",
+    breaks = base::names(colors),
+    values = colors
+  ) +
+  scale_fill_manual(
+    name = "Prior",
+    breaks = names(colors),
+    values = colors
+  ) +
+  guides(
+    shape = guide_legend(order = 1),
+    color = guide_legend(order = 1),
+    fill = guide_legend(order = 2, override.aes = list(shape = 21, color = "grey30"))
+  ) +
+  scale_x_discrete(expand = expansion(add = 1)) +
+  ggh4x::facetted_pos_scales(
+    y = list(NULL, scale_y_continuous(limits = c(0, 1.05)), scale_y_continuous(limits = c(0, 1.05)), scale_y_continuous(trans = "log2"))
+  )
+  if (no_x_title) {
+    pl <- pl + theme(axis.title.x = element_blank())
+  }
+
+  # add external legend
+  if (!no_legend) {
+    pl <- gridExtra::arrangeGrob(
+      legend, 
+      pl + theme(legend.position = "none"),
+      nrow = 2,
+      heights = c(legend_height, 1)
+    )
+  } else {
+    pl <- pl + theme(legend.position = "none")
+  }
+  return(pl)
+}
+```
+
+```{r}
+pl <- greyscale_plot(1:20)
+ggsave(file.path(figures_dir, "rank_metrics_aligned_greyscale_1_20.png"), pl, width = 14, height = 4)
+
+pl <- greyscale_plot(1:10, no_x_title = TRUE)
+ggsave(file.path(figures_dir, "rank_metrics_aligned_greyscale_1_10.png"), pl, width = 7, height = 4)
+
+pl <- greyscale_plot(11:20, no_legend = TRUE)
+ggsave(file.path(figures_dir, "rank_metrics_aligned_greyscale_11_20.png"), pl, width = 7, height = 3.7) # shorter with no legend
+
+pl <- greyscale_plot(c(1,5,10,15,20), med_size = 1.2)
+ggsave(file.path(figures_dir, "rank_metrics_aligned_greyscale_5s.png"), pl, width = 7, height = 5)
 ```
 
 ## Figure: label switching diagnostic
 
 ```{r eval = FALSE}
 samplers <- list()
-for (N in c(1, 5, 10, 15, 20)) {
+for (N in c(5, 10, 15, 20)) {
   print(N)
-  samplers[[as.character(N)]] <- readRDS(file.path(output_dir, "P_T_MH_SBFI", glue("N{N}_G64_rep1_withsamples"), "sampler.rds"))
-  plot(samplers[[as.character(N)]], sigs = TRUE)
+  sampler <- readRDS(file.path(output_dir, "P_T_MH_SBFI", glue("N{N}_G64_rep1_withsamples"), "sampler.rds"))
+  plot(sampler, sigs = TRUE)
 }
+```
+
+```{r}
+plots <- list()
+for (N in c(5, 10, 15)) {
+  print(N)
+  sampler <- readRDS(file.path(output_dir, "P_T_MH_SBFI", glue("N{N}_G64_rep1_withsamples"), "sampler.rds"))
+  plots[[as.character(N)]] <- sampler$reference_comparison$plots$label_switching
+}
+```
+
+```{r}
+# add titles A, B, C with gridExtra
+plots_combined <- gridExtra::arrangeGrob(
+  ggplot() + theme_void() + labs(title = glue("A. Label Switching, True N = 5")) + theme(plot.title = element_text(size = 30)),
+  plots[[1]],
+  ggplot() + theme_void() + labs(title = glue("B. Label Switching, True N = 10")) + theme(plot.title = element_text(size = 30)),
+  plots[[2]],
+  ggplot() + theme_void() + labs(title = glue("C. Label Switching, True N = 15")) + theme(plot.title = element_text(size = 30)),
+  plots[[3]],
+  ncol = 1,
+  heights = c(0.1, 1, 0.1, 1, 0.1, 1)
+)
+ggsave(file.path(figures_dir, "label_switching_combined.png"), plots_combined, width = 20, height = 25)
 ```

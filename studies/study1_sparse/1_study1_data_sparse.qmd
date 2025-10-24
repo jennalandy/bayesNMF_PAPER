@@ -11,6 +11,8 @@ library(glue)
 library(bayesNMF)
 library(ggplot2)
 library(tidyverse)
+library(cowplot)
+library(gridExtra)
 
 data_dir <- "../../data/study1_sparse"
 figures_dir <- "../../figures/study1_sparse"
@@ -36,7 +38,7 @@ r <- mean_mutations_per_signature * p / (1 - p)
 summary(rnbinom(10000, size = r*2, prob = p))
 ```
 
-```{r}
+```{r eval = FALSE}
 set.seed(321)
 sparsity <- data.frame(N = numeric(), G = numeric(), sparsity = numeric(), median_count = numeric())
 for (N in Ns) {
@@ -77,19 +79,50 @@ for (N in Ns) {
     }
   }
 }
+
+write.csv(sparsity, file.path(data_dir, "sparsity.csv"), row.names = FALSE)
 ```
 
 ```{r}
-sparsity %>%
+sparsity <- read.csv(file.path(data_dir, "sparsity.csv"))
+
+sparsity_pl <- sparsity %>%
+  filter(N == 4) %>%
+  mutate(N = paste(N, "Signatures")) %>%
   ggplot(aes(x = G, y = sparsity)) +
-  facet_grid(cols = vars(N)) +
-  geom_point()
-ggsave(file.path(figures_dir, "sparsity.png"))
+  geom_point() +
+  ggtitle("A. Sparsity") +
+  labs(x = "Sample Size G", y = "Sparsity") +
+  theme_light() +
+  theme(
+    strip.text = element_text(color = 'black'),
+    strip.background = element_rect(fill = "white", color = "black", linewidth = 0.5),
+    plot.background = element_rect(fill = "white", color = "black", linewidth = 0.5),
+    plot.title.position = "plot"
+  ) +
+  scale_x_continuous(breaks = Gs)
+ggsave(file.path(figures_dir, "sparsity.png"), sparsity_pl, width = 3, height = 4)
 
 
-sparsity %>%
+median_count_pl <- sparsity %>%
+  filter(N == 4) %>%
+  mutate(N = paste(N, "Signatures")) %>%
   ggplot(aes(x = G, y = median_count)) +
-  facet_grid(cols = vars(N)) +
-  geom_jitter()
-ggsave(file.path(figures_dir, "median_count.png"))
+  geom_jitter() +
+  ggtitle("B. Median count") +
+  labs(x = "Sample Size G", y = "Median Count") +
+  theme_light() +
+  theme(
+    strip.text = element_text(color = 'black'),
+    strip.background = element_rect(fill = "white", color = "black", linewidth = 0.5),
+    plot.background = element_rect(fill = "white", color = "black", linewidth = 0.5),
+    plot.title.position = "plot"
+  ) +
+  scale_x_continuous(breaks = Gs)
+ggsave(file.path(figures_dir, "median_count.png"), median_count_pl, width = 3, height = 4)
+
+# combine plots in two columns
+p <- plot_grid(sparsity_pl, median_count_pl, ncol = 2)
+ggsave(file.path(figures_dir, "sparse_data.png"), p, width = 10, height = 5)
+saveRDS(p, file.path(figures_dir, "sparse_data.rds"))
 ```

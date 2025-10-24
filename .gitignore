@@ -1,3 +1,5 @@
+*.nfs*
+*tmp.png
 *.DS_Store
 *.csv
 *.rds

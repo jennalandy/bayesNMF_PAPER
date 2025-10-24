@@ -9,7 +9,7 @@ matrix <- job_assignments$matrix[task_id]
 name <- substr(matrix, 1, nchar(matrix) - 4) # drops .csv
 
 # load bayesNMF R package
-library(bayesNMF, lib = "/homes8/jlandy/R/x86_64-pc-linux-gnu-library/4.3")
+library(bayesNMF)
 
 # load counts data (already nonhyper only)
 data <- read.csv(file.path("../../processed", "PCAWG", "matrices_nonhyper", matrix), row.names = 1)

@@ -66,9 +66,12 @@ saveRDS(bayesNMF_all_res, file = file.path(processed_dir, "bayesNMF_all_res.rds"
 bayesNMF_all_res <- readRDS(file.path(processed_dir, "bayesNMF_all_res.rds"))
 ```
 
+```{r}
+reference <- reference[rownames(bayesNMF_all_res[[1]]$data),]
+```
+
 Get summary df and save
 ```{r eval = FALSE}
-reference <- reference[rownames(bayesNMF_all_res[[1]]$data),]
 bayesNMF_summary <- do.call(rbind, lapply(names(bayesNMF_all_res), function(name) {
   if (name %in% drop) {return(NULL)}
   print(name)
@@ -86,20 +89,10 @@ length(unique(bayesNMF_summary$histology))
 ```
 
 ```{r}
-pl <- bayesNMF::plot_summary(bayesNMF_all_res, reference_P = reference) +
-  theme(legend.key.height = unit(1.5, "cm"))
+pl <- bayesNMF::plot_summary(bayesNMF_all_res, reference_P = reference, keep_all_ref = TRUE) +
+  theme(legend.key.height = unit(1.5, "cm")) 
 
-ggsave(file.path(figures_dir, "summary.png"), height = 20, width = 18)
-```
-
-```{r}
-all(rownames(reference) == rownames(bayesNMF_all_res[['Myeloid AML']]$data))
-
-assign_signatures_single(bayesNMF_all_res[['Myeloid AML']]$MAP$P, reference_P = reference)
-
-sampler <- readRDS(glue("../../output/PCAWG/bayesNMF/Myeloid_AML/sampler.rds"))
-assign_signatures_single(sampler$MAP$P, reference_P = reference)
-sampler$assign_signatures_ensemble(reference_P = reference)
+ggsave(file.path(figures_dir, "bayesNMF_summary.png"), pl, height = 20, width = 18)
 ```
 
 ```{r}
@@ -107,7 +100,13 @@ sampler$assign_signatures_ensemble(reference_P = reference)
 title_size = 35
 font_size = 20
 
-summary %>%
+color_range = 2**seq(
+  floor(log(min(bayesNMF_summary$Med_Contribution), base = 2)),
+  ceiling(log(max(bayesNMF_summary$Med_Contribution), base = 2)),
+  by = 2
+)
+
+bayesNMF_summary_flipped <- bayesNMF_summary %>%
   dplyr::mutate(
     Name_G = paste0(histology, " (", G, ")"),
     Signature = factor(Reference_Signature, levels = rev(colnames(reference)))
@@ -150,53 +149,7 @@ summary %>%
     size = guide_legend(order = 2)
   )
 
-ggsave(file.path(figures_dir, "dot_plot_flipped.png"), height = 10, width = 25)
-```
-
-
-```{r}
-title_size = 12
-font_size = 9
-
-file = "Skin_Melanoma/sampler.rds"
-res <- readRDS(file.path(results_dir, file))
-plot_similarity_heatmap(res$credible_intervals$P[[1]], res$credible_intervals$P[[2]]) +
-  theme(
-    axis.text = element_text(size = 15)
-  )
-plot_similarity_heatmap(res$MAP$P, reference) +
-  theme(
-    axis.text = element_text(size = 15)
-  )
-plot = plot_sig(res, sig = 6, title = "Skin-Melanoma", reference_P = reference) +
-  theme(
-    text = element_text(size = font_size),
-    title = element_text(size = title_size)
-  )
-plot = plot + labs(title = gsub("\n", ", ", ggplot_build(plot)$plot$labels$title))
-
-ggsave(file = file.path(figures_dir, "Skin-Melanoma-SBS7a.png"), height = 3)
-```
-
-```{r}
-file =  "Eso_AdenoCA/sampler.rds"
-res <- readRDS(file.path(results_dir, file))
-plot_similarity_heatmap(res$credible_intervals$P[[1]], res$credible_intervals$P[[2]]) +
-  theme(
-    axis.text = element_text(size = 15)
-  )
-plot_similarity_heatmap(res$MAP$P, reference) +
-  theme(
-    axis.text = element_text(size = 15)
-  )
-
-plot = plot_sig(res, sig = 7, title = "Eso-AdenoCA", reference_P = reference) +
-  theme(
-    text = element_text(size = font_size),
-    title = element_text(size = title_size)
-  )
-plot = plot + labs(title = gsub("\n", ", ", ggplot_build(plot)$plot$labels$title))
-ggsave(file = file.path(figures_dir, "Eso-AdenoCA-SBS2.png"), height = 3)
+ggsave(file.path(figures_dir, "bayesNMF_summary_flipped.png"), bayesNMF_summary_flipped,height = 10, width = 25)
 ```
 
 ## SignatureAnalyzer Results
@@ -294,7 +247,10 @@ results_df <- read.csv(file.path(processed_dir, "out.csv")) %>%
 title_size = 35
 font_size = 20
 
-results_df %>%
+signatureanalyzer_summary_flipped <- results_df %>%
+  mutate(
+    Name_G = paste0(Name, " (", G, ")"),
+  ) %>%
   filter(Med_Contribution >= 0) %>%
   ggplot2::ggplot(ggplot2::aes(
     y = Name_G, x = Signature, color = Med_Contribution
@@ -333,97 +289,20 @@ results_df %>%
     size = guide_legend(order = 2)
   )
 
-ggsave(file.path(figures_dir, "dot_plot_flipped.png"), height = 10, width = 25)
+ggsave(file.path(figures_dir, "signatureanalyzer_summary_flipped.png"), signatureanalyzer_summary_flipped, height = 10, width = 25)
 ```
 
-```{r}
-title_size = 12
-font_size = 9
-
-histology = 'Skin_Melanoma'
-
-Phat <- read.csv(file.path(results_dir, histology, "W.csv")) %>%
-  column_to_rownames("X") %>%
-  select(starts_with('S'))
-
-Ehat <- read.csv(file.path(results_dir, histology, "H.csv")) %>%
-  column_to_rownames("X") %>%
-  select(starts_with('S')) %>%
-  t()
-
-res <- list(
-  'MAP' = list(
-    'P' = Phat,
-    'E' = Ehat
-  ),
-  credible_intervals = list(
-    'P' = list(Phat, Phat),
-    'E' = list(Ehat, Ehat)
-  )
-)
-
-assign_signatures_single(Phat, reference) %>%
-filter(sig_ref == 'SBS7a')
-
-plot = (plot_sig(res, sig = 41, title = 'Skin-Melanoma', reference_P = reference)  +
-  theme(
-    text = element_text(size = font_size),
-    title = element_text(size = title_size)
-  )) %>% remove_geom(geom = "errorbar")
-plot = plot + labs(title = gsub("\n", ", ", ggplot_build(plot)$plot$labels$title))
-
-ggsave(file = file.path(figures_dir, "Skin-Melanoma-SBS7a.png"), height = 3)
-```
-
-```{r}
-histology = 'Eso_AdenoCA'
-
-Phat <- read.csv(file.path(results_dir, histology, "W.csv")) %>%
-  column_to_rownames("X") %>%
-  select(starts_with('S'))
-
-Ehat <- read.csv(file.path(results_dir, histology, "H.csv")) %>%
-  column_to_rownames("X") %>%
-  select(starts_with('S')) %>%
-  t()
-
-res <- list(
-  'MAP' = list(
-    'P' = Phat,
-    'E' = Ehat
-  ),
-  credible_intervals = list(
-    'P' = list(Phat, Phat),
-    'E' = list(Ehat, Ehat)
-  )
-)
-
-plot_similarity_heatmap(Phat, reference)
-assign_signatures_single(Phat, reference) %>%
-filter(sig_ref == "SBS2")
-
-plot = (plot_sig(res, sig = 18, title = 'Eso-AdenoCA', reference_P = reference)  +
-  theme(
-    text = element_text(size = font_size),
-    title = element_text(size = title_size)
-  )) %>% remove_geom(geom = "errorbar")
-plot = plot + labs(title = gsub("\n", ", ", ggplot_build(plot)$plot$labels$title))
-ggsave(file = file.path(figures_dir, "Eso-AdenoCA-SBS2.png"), height = 3)
-```
-
-
-## Combine Results for Figure 3
+## Comparing methods
 
 ```{r}
 figures_dir = "../../figures/PCAWG/results"
 ```
 
 ```{r}
-# colorblind friendly colors, from http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette:
 colors = list(
-  'bayesNMF' = "#E69F00",
-  'both' = "#009E73",
-  'SignatureAnalyzer' = "#0072B2"
+  'bayesNMF' = "#2196F3",
+  'both' = "#9C27B0",
+  'SignatureAnalyzer' = "#F44336"
 )
 
 shapes = list(
@@ -433,12 +312,12 @@ shapes = list(
 )
 ```
 
-### Compare ranks
+#### Ranks
 
 ```{r}
 # load data saved above
 bayesNMF_df <- bayesNMF_summary %>% dplyr::select(-N)
-SignatureAnalyzer_df <- results_df %>% dplyr::select(-n) %>%
+SignatureAnalyzer_df <- results_df %>% dplyr::select(-n, -X) %>%
 mutate(Name = str_replace(Name, "_", " "))
 
 bayesNMF_df$Name <- bayesNMF_df$histology
@@ -452,26 +331,24 @@ combo_df = bayesNMF_df %>%
     mutate(method = 'SignatureAnalyzer')
   )
 
-head(combo_df)
-```
 
-```{r}
 ranks <- combo_df %>%
   group_by(Name, method) %>%
   tally() %>%
   ungroup()
 
-title_size = 35
-font_size = 20
+same_rows <- ranks %>%
+  group_by(Name, n) %>%
+  summarize(both = length(unique(method)) == 2) %>%
+  filter(both)
+```
 
-same_rows = ranks %>%
-  group_by(Name) %>%
-  summarize(
-    same = length(unique(n)) == 1
-  ) %>%
-  filter(same)
+### Comparing ranks between methods
 
-p <- ranks %>%
+```{r}
+ranks_greyscale <- ranks %>%
+  merge(combo_df %>% select(Name, G)) %>%
+  mutate(Name_G = paste0(Name, " (", G, ")"), Name_G = factor(Name_G, levels = unique(Name_G))) %>%
   mutate(
     method = ifelse(
       Name %in% same_rows$Name,
@@ -480,196 +357,198 @@ p <- ranks %>%
     )
   ) %>%
   unique() %>%
-  ggplot(aes(y = Name, x = n, color = method, fill = method, shape = method)) +
-  geom_point(size = 6) +
+  ggplot(aes(y = Name, x = n, shape = method, color = method, fill = method)) +
+  geom_point(size = 1) +
   scale_shape_manual(values = shapes) +
-  ggplot2::scale_x_continuous(
-    breaks = seq(0, 60, by = 10),
-    position = "top"
-  ) +
-  ggplot2::theme(
-    text = ggplot2::element_text(size = font_size),
-    axis.title = ggplot2::element_text(size = title_size),
-    legend.title = ggplot2::element_text(size = title_size),
-    legend.text = element_text(size = font_size),
-    axis.title.y = ggplot2::element_blank(),
-    plot.title = ggplot2::element_text(hjust = 0.5),
-    plot.margin = margin(15, 1, 1, 1),
-    axis.text.y = element_blank(),
-    axis.ticks.y = element_blank()
+  scale_color_manual(values = colors) +
+  scale_fill_manual(values = colors) +
+  theme_light(base_size = 12) +
+  theme(
+    text = element_text(size = 12),
+    legend.position = "top",
+    legend.justification = "left",
+    legend.text = element_text(size = 9),
+    legend.title = element_text(size = 10),
+    legend.key.size = unit(0.1, "lines"),
+    strip.placement = 'outside',
+    strip.background = element_rect(fill = "white", color = 'grey'),
+    strip.text = element_text(color = "black"),
+    strip.text.y.left = element_text(angle = 0),
+    panel.grid.major = element_line(size = 0.3),
+    panel.grid.minor = element_line(size = 0.1),
+    plot.background = element_rect(fill = "white"),
+    axis.title.y = element_blank()
   ) +
   labs(
     y = 'Cancer Histology Group',
     x = 'Estimated\nRank',
     color = 'Method', shape = 'Method', fill = 'Method'
   ) +
-  scale_color_manual(values = colors) +
-  scale_fill_manual(values = colors)
-p
-ggsave(file.path(figures_dir, "ranks.png"), height = 10, width = 5.5)
-
-p +
-theme(legend.position = 'none')
-ggsave(file.path(figures_dir, "ranks_nolegend.png"), height = 10, width = 3)
-
-p +
-ggplot2::scale_x_continuous(
-  lim = c(0, 30),
-  breaks = seq(0, 30, by = 10),
-  position = "top"
-) 
-ggsave(file.path(figures_dir, "ranks_zoom.png"), height = 10, width = 5.5)
-
-
-p +
-ggplot2::scale_x_continuous(
-  lim = c(0, 30),
-  breaks = seq(0, 30, by = 10),
-  position = "top"
-) +
-theme(legend.position = 'none')
-ggsave(file.path(figures_dir, "ranks_zoom_nolegend.png"), height = 10, width = 3)
-
-p <- p +
-theme(legend.position = 'bottom', legend.text = element_text(size = 30))
-as_ggplot(ggpubr::get_legend(p))
-ggsave(file.path(figures_dir, "legend.png"), height = 1, width = 10)
+  scale_x_continuous(
+    lim = c(0, 30),
+    breaks = seq(0, 30, by = 10),
+    minor_breaks = seq(0, 30, by = 1),
+    position = "top"
+  )
+ranks_greyscale
 ```
 
-### Dot plot with signatures identified by one method, the other, or both 
+### Comparing signatures identified by one method, the other, or both 
 
 ```{r}
-title_size = 35
-font_size = 20
+# only include signatures that were identified by at least one method for space
+included_signatures <- combo_df %>% filter(!(Name == "Skin Melanoma")) %>% pull(Signature) %>% unique()
+# order based on reference column names
+included_signatures <- included_signatures[order(match(included_signatures, colnames(reference)))]
+included_signatures_noSBS <- str_remove(included_signatures, "SBS")
 
-combo_df %>%
-  mutate(Name_G = paste0(Name, " (", G, ")")) %>%
+
+assignments_greyscale <- combo_df %>%
+  filter(Name != "Skin Melanoma") %>%
+  mutate(
+    Name_G = paste0(Name, " (", G, ")"), Name_G = factor(Name_G, levels = unique(Name_G)),
+    Signature = str_remove(Signature, "SBS"),
+    Signature = factor(Signature, levels = included_signatures_noSBS)
+  ) %>%
   group_by(Name_G, Signature) %>%
   summarize(
     bayesNMF = "bayesNMF" %in% method,
     SignatureAnalyzer = "SignatureAnalyzer" %in% method
   ) %>%
   mutate(
-    color = case_when(
+    which = case_when(
       bayesNMF & SignatureAnalyzer ~ "both",
       bayesNMF ~ "bayesNMF",
       SignatureAnalyzer ~ "SignatureAnalyzer"
     )
   ) %>%
   ggplot(aes(
-    y = Name_G, x = Signature, color = color, fill = color, shape = color
+    y = Name_G, x = Signature, shape = which, color = which, fill = which
   )) +
-  geom_point(size = 6) +
+  geom_point(size = 1) +
   ggplot2::scale_x_discrete(
-    limits = colnames(reference),
     position = "top"
   ) +
+  ggplot2::scale_shape_manual(values = shapes) +
   ggplot2::scale_color_manual(values = colors) +
   ggplot2::scale_fill_manual(values = colors) +
-  ggplot2::scale_shape_manual(values = shapes) +
   labs(
     color = 'Method', fill = 'Method', shape = 'Method',
     y = 'Cancer Histology Group'
   ) +
-  ggplot2::theme(
-    text = ggplot2::element_text(size = font_size),
-    axis.title = ggplot2::element_text(size = title_size),
-    legend.title = ggplot2::element_text(size = title_size),
-    legend.text = element_text(size = font_size),
-    axis.text.x = ggplot2::element_text(angle = 90, hjust = 0, vjust = 0.5),
-    plot.title = ggplot2::element_text(hjust = 0.5),
-    legend.position = 'none',
-    plot.margin = margin(5, 10, 5, 5)
+  theme_light(base_size = 12) +
+  theme(
+    text = element_text(size = 12),
+    legend.position = "top",
+    legend.justification = "left",
+    legend.text = element_text(size = 9),
+    legend.title = element_text(size = 10),
+    legend.key.size = unit(0.1, "lines"),
+    strip.placement = 'outside',
+    strip.background = element_rect(fill = "white", color = 'grey'),
+    strip.text = element_text(color = "black"),
+    strip.text.y.left = element_text(angle = 0),
+    panel.grid.major = element_line(size = 0.2),
+    panel.grid.minor = element_line(size = 0.1),
+    plot.background = element_rect(fill = "white"),
+    axis.title.y = element_blank(),
+    axis.text.x.top = element_text(angle = 90, hjust = 0, vjust = 0.5)
   )
-
-ggsave(file.path(figures_dir, "assignments.png"), height = 10, width = 25)
 ```
 
-## Build full figure
+### Combine rank and assignment plots
+
 
 ```{r}
-add_label_top_left <- function(grob, label, label_size = 100, label_margin = unit(0, "lines")) {
-  gridExtra::arrangeGrob(
-    grob,
-    top = textGrob(
-      label,
-      x = unit(0, "npc") + label_margin,   # Align to left with margin
-      y = unit(1, "npc") - label_margin,   # Add top margin
-      just = c("left", "top"),             # Align to top-left corner
-      gp = gpar(fontsize = label_size, fontface = "bold")  # Set label style
+# extract legend from fig1A
+g_legend <- function(a.gplot) {
+  # from https://stackoverflow.com/questions/13649473/add-a-common-legend-for-combined-ggplots
+  tmp <- ggplot_gtable(ggplot_build(a.gplot))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)
+}
+
+legend_greyscale <- g_legend(assignments_greyscale)
+blank <- ggplot() + theme_void()
+margin <- 0.02
+
+assignments_greyscale_with_caption <- assignments_greyscale + 
+    ggtitle("A.") +
+    labs(x = "COSMIC v3.3.1 SBS Signature") +
+    theme(
+      plot.title.position = "plot",
+      plot.title = element_text(size = 12),
+      legend.position = "none",
+      axis.text.x.top = element_text(size = 6),
+      axis.text.y = element_text(size = 7),
+      plot.margin = unit(c(0, 0, 0, 0), "cm")
     )
-  )
-}
 
-text_with_background <- function(text, background_color = 'lightgrey', text_color = 'black', fontsize = 100, rot = 90){
-  grid::grobTree(
-    rectGrob(
-      gp = gpar(fill = background_color, col = NA)
-    ),
-    textGrob(text, gp = gpar(col = text_color, fontsize = fontsize), rot = rot)
-  )
-}
-```
+ranks_greyscale_with_caption <- ranks_greyscale + 
+    ggtitle("B.") +
+    theme(
+      plot.title.position = "plot",
+      plot.title = element_text(size = 12),
+      legend.position = "none",
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      plot.margin = unit(c(0, 0.05, 0, 0.2), "cm")
+    )
+    
+g1 <- ggplotGrob(assignments_greyscale_with_caption)
+g2 <- ggplotGrob(ranks_greyscale_with_caption)
 
-```{r}
-png_bayesNMF_dot = readPNG(file.path("../../figures/PCAWG/bayesNMF", "dot_plot_flipped.png"))
-fig_bayesNMF_dot = rasterGrob(png_bayesNMF_dot, interpolate = TRUE)
+# Make left/right columns the same width
+maxh <- unit.pmax(g1$heights, g2$heights)
+g1$heights <- maxh
+g2$heights <- maxh
 
-png_SA_dot = readPNG(file.path("../../figures/PCAWG/SignatureAnalyzer", "dot_plot_flipped.png"))
-fig_SA_dot = rasterGrob(png_SA_dot, interpolate = TRUE)
-
-png_combo_dot = readPNG(file.path(figures_dir, "assignments.png"))
-fig_combo_dot = rasterGrob(png_combo_dot, interpolate = TRUE)
-
-png_rank = readPNG(file.path(figures_dir, "ranks_zoom_nolegend.png"))
-fig_rank = rasterGrob(png_rank, interpolate = TRUE)
-
-png_legend = readPNG(file.path(figures_dir, "legend.png"))
-fig_legend = rasterGrob(png_legend, interpolate = TRUE)
-```
-
-```{r}
-space = 1
-w = 26
-
-combo <- arrangeGrob(
-  add_label_top_left(fig_combo_dot, "A"),
-  add_label_top_left(fig_rank, "B"),
-  ncol = 2, widths = c(w-3, 3)
-)
-
-combo_plot <- grid.arrange(
-  grobs = list(
-    combo,
-    fig_legend
-  ),
-  ncol = 1,
+fig_greyscale <- gridExtra::arrangeGrob(
+  gridExtra::arrangeGrob(g1, g2, nrow = 1, widths = c(5, 1)),
+  legend_greyscale,
+  nrow = 2,
   heights = c(10, 1)
 )
 
-png(file.path(figures_dir, "results.png"), width = (w)*300, height = (10)*300)
-grid.draw(combo_plot)
-dev.off()
+ggsave(file.path(figures_dir, "pcawg_greyscale.png"), fig_greyscale, width = 7, height = 5)
 ```
 
+### Additional results: summary plots and table of ranks
 
 ```{r}
-plot <- grid.arrange(
-  grobs = list(
-    add_label_top_left(fig_bayesNMF_dot, "A. bayesNMF Results"),
-
-    grid::textGrob(""),
-
-    add_label_top_left(fig_SA_dot, "B. SignatureAnalyzer Results")
-  ),
-  ncol = 1,
-  heights = c(10, space, 10),
-  widths = c(25)
+combo <- gridExtra::arrangeGrob(
+  bayesNMF_summary_flipped +
+    ggtitle("A. bayesNMF Results") +
+    theme_light(base_size = 12) +
+    theme(
+      axis.text.x.top = element_text(angle = 90, hjust = 0, vjust = 0.5),
+      axis.text.y = element_text(size = 14),
+      axis.title = element_text(size = 14),
+      plot.title = element_text(size = 20),
+      plot.title.position = "plot",
+      legend.position = "none"
+    ),
+  # blank
+  grid::textGrob(""),
+  signatureanalyzer_summary_flipped +
+    ggtitle("B. SignatureAnalyzer Results") +
+    theme_light(base_size = 12) +
+    theme(
+      axis.text.x.top = element_text(angle = 90, hjust = 0, vjust = 0.5),
+      axis.text.y = element_text(size = 14),
+      axis.title = element_text(size = 14),
+      plot.title = element_text(size = 20),
+      plot.title.position = "plot",
+      legend.position = "bottom"
+    ) +
+    guides(
+      color = guide_colorbar(barwidth = unit(8, "cm"))
+    ),
+  nrow = 3, heights = c(1, 0.01, 1.2)
 )
 
-png(file.path(figures_dir, "results_details.png"), width = (25)*300, height = (10*2)*300)
-grid.draw(plot)
-dev.off()
+ggsave(file.path(figures_dir, "pcawg_extended_results.png"), combo, width = 16, height = 20)
 ```
 
 ```{r}
@@ -678,236 +557,51 @@ ranks %>%
   knitr::kable(format = "latex")
 ```
 
-## Is posterior uncertainty higher when we deviate from SignatureAnalyzer?
+## Additional results: posterior uncertainty around assignment
 
-```{r}
-assign_signatures_ensemble <- function(
-  sampler,
-  reference_P = "cosmic",
-  idxs = "MAP_idx",
-  credible_interval = 0.95
-) {
-  if ("character" %in% class(reference_P)) {
-    if (reference_P == "cosmic") {
-      reference_P = get_cosmic()
-    } else {
-      stop("Parameter `reference_P` must be a matrix or 'cosmic'")
-    }
-  }
-  
-  if ("character" %in% class(idxs)) {
-    if (idxs == "MAP_idx") {
-      idxs = sampler$MAP$idx
-    } else {
-      stop("Parameter `idxs` must be a vector of indices or 'MAP_idx'")
-    }
-  }
+Add columns to bayesNMF dataframe for each estimated signature
+- majority_sig_weight: voting weight given to its assigned reference signature
+- SA_sig_weight: voting weight given to its a reference signature also estimated by SignatureAnalyzer
 
-  # across idxs, assign signatures and use cosine similarity as voting weight
-  votes <- lapply(idxs, function(idx) {
-    assignment_res <- assign_signatures_single(
-      sampler$samples$P[[idx]][,sampler$MAP$keep_sigs], 
-      reference_P
-    )
-    assignment_res$i = idx
-    return(assignment_res)
-  }) %>%
-    do.call(rbind, .) %>%
-    dplyr::group_by(sig_est, sig_ref) %>%
-    dplyr::summarize(
-      votes = sum(cos_sim),
-      .groups = "keep"
-    ) %>%
-    dplyr::ungroup() 
-  votes <- votes %>%
-    merge(
-      votes %>%
-        dplyr::group_by(sig_est) %>%
-        dplyr::summarize(total_votes = sum(votes))
-    ) %>% 
-    dplyr::mutate(
-      prop_votes = votes / total_votes
-    ) %>%
-    dplyr::select(sig_est, sig_ref, prop_votes) %>%
-    dplyr::arrange(sig_est, -prop_votes)
+Sometimes these are the same, but sometimes a "second choice" reference signature matches the SignatureAnalyzer results, while the majority voted reference signature does not.
 
-  assignments <- votes %>%
-    dplyr::group_by(sig_est) %>%
-    dplyr::summarize(
-      sig_ref = sig_ref[which.max(prop_votes)],
-      prop_votes = max(prop_votes),
-      .groups = "keep"
-    ) %>%
-    dplyr::ungroup() %>%
-    dplyr::arrange(sig_est)
-
-  assigned_cos_sim <- lapply(idxs, function(idx) {
-    sim <- pairwise_sim(
-      sampler$samples$P[[idx]][, sampler$MAP$keep_sigs],
-      reference_P[,assignments$sig_ref, drop = FALSE]
-    )
-    sapply(1:nrow(assignments), function(i) {
-      sim[assignments$sig_est[i], assignments$sig_ref[i]]
-    })
-  }) %>%
-    do.call(rbind, .)
-  
-  assigned_cos_sim_quantiles <- apply(assigned_cos_sim, 2, function(col) {
-    quantile(col, c((1 - credible_interval)/2, 1-(1 - credible_interval)/2))
-  })
-
-  return(list(
-    'assignments' = assignments,
-    'assigned_cos_sim_quantiles' = assigned_cos_sim_quantiles,
-    'votes' = votes
-  ))
-}
-```
-
-```{r}
-name <- "Kidney_ChRCC"
-# same rank, 3 signatures the same but 1 diff. bayesNMF gets SBS40, signatureAnalyzer gets SBS95
-
-sampler <- readRDS(glue("output/PCAWG/bayesNMF/{name}/sampler.rds"))
-assignments <- assign_signatures_single(sampler$MAP$P, reference_P = reference)
-idx <- assignments[assignments$sig_ref == "SBS40", "sig_est"]
-
-widths = sampler$credible_intervals$P$upper - 
-sampler$credible_intervals$P$lower
-
-widths %>%
-  data.frame() %>%
-  mutate(i = 1:nrow(widths)) %>%
-  pivot_longer(1:4, names_to = "xi", values_to = 'width') %>%
-  mutate(
-    uncertain = xi == paste0("X",idx)
-  ) %>%
-  ggplot(aes(x = width, y = xi, fill = uncertain)) +
-  geom_boxplot()
-
-ensemble_assign <- assign_signatures_ensemble(sampler, reference_P = reference)
-ensemble_assign$assignments$prop_votes[idx]
-ensemble_assign$assignments$prop_votes[-idx]
-
-ensemble_assign$votes %>% filter(sig_est %in% idx)
-# SBS95 is on the list, but only got 5.4% of votes
-
-assignments <- assign_signatures_single(sampler$MAP$P, reference)
-assignments$cos_sim[idx]
-assignments$cos_sim[-idx]
-```
-
-```{r}
-name <- "Myeloid_AML"
-# same rank, 2 signatures the same but 2 diff. bayesNMF gets SBS3, SBS6, signatureAnalyzer gets SBS1, SBS43
-
-sampler <- readRDS(glue("output/PCAWG/bayesNMF/{name}/sampler.rds"))
-
-assignments <- assign_signatures_single(sampler$MAP$P, reference_P = reference)
-assignments
-
-idx <- assignments[assignments$sig_ref %in% c("SBS3", "SBS6"), "sig_est"]
-
-widths = sampler$credible_intervals$P$upper - 
-sampler$credible_intervals$P$lower
-
-widths %>%
-  data.frame() %>%
-  mutate(i = 1:nrow(widths)) %>%
-  pivot_longer(1:3, names_to = "xi", values_to = 'width') %>%
-  mutate(
-    uncertain = xi %in% paste0("X",idx)
-  ) %>%
-  ggplot(aes(x = width, y = xi, fill = uncertain)) +
-  geom_boxplot()
-
-ensemble_assign <- assign_signatures_ensemble(sampler, reference_P = reference)
-ensemble_assign$assignments$prop_votes[idx]
-ensemble_assign$assignments$prop_votes[-idx]
-
-ensemble_assign$votes %>%
-  filter(sig_est %in% idx)
-# SBS 1 is second option for SBS6 sig, and gets only 33% of votes
-# SBS 43 is not an option for SBS3 sig. But SBS3 only gets 55% of votes.
-
-assignments <- assign_signatures_single(sampler$MAP$P, reference)
-assignments$cos_sim[idx]
-assignments$cos_sim[-idx]
-```
-
-## Signature examples
-
-```{r}
-png_SA_dot = readPNG("figures/pcawg_SignatureAnalyzer/dot_plot_flipped.png")
-fig_SA_dot = rasterGrob(png_SA_dot, interpolate = TRUE)
-
-png_bayesNMF_7b = readPNG("figures/pcawg_bayesNMF/Skin-Melanoma-SBS7b.png")
-fig_bayesNMF_7b = rasterGrob(png_bayesNMF_7b, interpolate = TRUE)
-
-png_SA_7b = readPNG("figures/pcawg_SignatureAnalyzer/Skin-Melanoma-SBS7b.png")
-fig_SA_7b = rasterGrob(png_SA_7b, interpolate = TRUE)
-
-png_bayesNMF_6 = readPNG("figures/pcawg_bayesNMF/Eso-AdenoCA-SBS6.png")
-fig_bayesNMF_6 = rasterGrob(png_bayesNMF_6, interpolate = TRUE)
-
-png_SA_6 = readPNG("figures/pcawg_SignatureAnalyzer/Eso-AdenoCA-SBS6.png")
-fig_SA_6 = rasterGrob(png_SA_6, interpolate = TRUE)
-```
-
-```{r}
-space = 0.5
-
-sigs_bayesNMF <- arrangeGrob(
-  add_label_top_left(fig_bayesNMF_7b, "A"),
-  add_label_top_left(fig_bayesNMF_6, "B"),
-  ncol = 2, widths = c(25/2, 25/2)
-)
-
-sigs_SA <- arrangeGrob(
-  add_label_top_left(fig_SA_7b, "C"),
-  add_label_top_left(fig_SA_6, "D"),
-  ncol = 2, widths = c(25/2, 25/2)
-)
-
-plot <- grid.arrange(
-  grobs = list(
-    text_with_background('bayesNMF Results', rot = 0),
-    grid::textGrob(""),
-    sigs_bayesNMF,
-    grid::textGrob(""),
-    text_with_background('SignatureAnalyzer Results', rot = 0),
-    grid::textGrob(""),
-    sigs_SA
-  ),
-  ncol = 1,
-  heights = c(1, space, 5, space, 1, space, 5)
-)
-png(file.path(figures_dir, "pcawg_sigs.png"), width = (25)*300, height = (5+5)*300)
-grid.draw(plot)
-dev.off()
-```
-
-## Add a column to bayesNMF that is the weight this sig was given in voting
 ```{r}
 name_current = ""
-weights <- vector(length = nrow(bayesNMF_df))
+majority_sig_weights <- vector(length = nrow(bayesNMF_df))
+SA_sig_weights <- vector(length = nrow(bayesNMF_df))
+
 for (i in 1:nrow(bayesNMF_df)) {
   row = bayesNMF_df[i,]
 
   if (row$Name != name_current) {
     print(row$Name)
     name_current = row$Name
-    assignment_res <- assign_signatures_ensemble(
-      bayesNMF_all_res[[name_current]], reference
-    )
+    assignment_res <- bayesNMF_all_res[[name_current]]$assign_signatures_ensemble(reference)
   }
-  weights[i] <- assignment_res$votes %>%
+  
+  majority_sig_weights[i] <- assignment_res$votes %>%
     group_by(sig_est) %>%
     summarize_all(first) %>%
     filter(sig_ref == row$Signature) %>%
     pull(prop_votes)
+
+  this_sig_est <- assignment_res$assignment %>%
+    filter(sig_ref == row$Signature) %>%
+    pull(sig_est)
+
+  SA_sigs <- SignatureAnalyzer_df %>%
+    filter(Name == row$Name) %>%
+    pull(Signature)
+
+  SA_sig_weights[i] <- assignment_res$votes %>%
+    filter(sig_est == this_sig_est, sig_ref %in% SA_sigs) %>%
+    pull(prop_votes) %>%
+    sum()
 }
-bayesNMF_df$weight = weights
+bayesNMF_df$majority_sig_weight = majority_sig_weights
+bayesNMF_df$SA_sig_weight = SA_sig_weights
+
+write.csv(bayesNMF_df, file.path(processed_dir, "bayesNMF_df.csv"))
 ```
 
 Add a column to bayesNMF identifying whether the sig was assigned to that histology group by SignatureAnalyzer
@@ -925,17 +619,12 @@ overlap_rows <- bayesNMF_df %>%
   apply(1, function(row) {paste(row, collapse = "")})
 
 bayesNMF_df$overlap <- bayesNMF_rows %in% overlap_rows
-```
-
-```{r}
-drop <- c("Bone_Benign", "Breast_LobularCA")
-bayesNMF_df <- bayesNMF_df %>%
-  filter(!(Name %in% drop))
+write.csv(bayesNMF_df, file.path(processed_dir, "bayesNMF_df.csv"))
 ```
 
 1. proportion of votes to assigned sig, separately for overlapped and non overlapped
 ```{r}
-bayesNMF_df %>%
+voting_weight <- bayesNMF_df %>%
   mutate(
     overlap = ifelse(overlap, "Assigned by\nboth", "Assigned by\nbayesNMF only")
   ) %>%
@@ -951,7 +640,7 @@ bayesNMF_df %>%
     text = element_text(size = 20),
     strip.text.y.left = element_text(angle = 0)
   )
-ggsave(file.path(figures_dir, "voting_weight.png"), height = 7, width = 7)
+ggsave(file.path(figures_dir, "voting_weight.png"), voting_weight, height = 7, width = 7)
 
 bayesNMF_df %>%
   group_by(overlap) %>%
@@ -963,7 +652,7 @@ bayesNMF_df %>%
 
 2. cosine sim, separately for overlapped and non overlapped
 ```{r}
-bayesNMF_df %>%
+cosine_sim <- bayesNMF_df %>%
   mutate(
     overlap = ifelse(overlap, "Assigned by\nboth", "Assigned by\nbayesNMF only")
   ) %>%
@@ -979,7 +668,7 @@ bayesNMF_df %>%
     text = element_text(size = 20),
     strip.text.y.left = element_text(angle = 0)
   )
-ggsave(file.path(figures_dir, "cosine_sim.png"), height = 7, width = 7)
+ggsave(file.path(figures_dir, "cosine_sim.png"), cosine_sim, height = 7, width = 7)
 
 bayesNMF_df %>%
   group_by(overlap) %>%
@@ -989,68 +678,47 @@ bayesNMF_df %>%
   )
 ```
 
-For non-overlapping, proportion of votes towards something estimated by SignatureAnalyzer
-
 ```{r}
-bayesNMF_df_noover <- bayesNMF_df %>% filter(!overlap)
-current_name = ""
-SA_sig_weights <- vector(length = nrow(bayesNMF_df_noover))
+nooverlap_SA_sig_weights <- bayesNMF_df %>%
+  filter(!overlap) %>%
+  pull(SA_sig_weight)
 
-for (i in 1:nrow(bayesNMF_df_noover)) {
-  row = bayesNMF_df_noover[i,]
-  if (row$Name != name_current) {
-    print(row$Name)
-    name_current = row$Name
-    assignment_res <- assign_signatures_ensemble(
-      bayesNMF_all_res[[name_current]], reference
-    )
-  }
-
-  sig_idx <- assignment_res$votes %>%
-    group_by(sig_est) %>%
-    summarize_all(first) %>%
-    filter(sig_ref == row$Signature) %>%
-    pull(sig_est)
-
-  SA_sigs <- SignatureAnalyzer_df %>%
-    filter(Name == row$Name) %>%
-    pull(Signature)
-  SA_sig_weights[i] <- assignment_res$votes %>%
-    filter(sig_est == sig_idx, sig_ref %in% SA_sigs) %>%
-    pull(prop_votes) %>%
-    sum()
-
-  print(SA_sig_weights[i])
-}
-bayesNMF_df_noover$SA_weights <- SA_sig_weights
+hist(nooverlap_SA_sig_weights, breaks = 10)
+table(nooverlap_SA_sig_weights > 0)
+mean(nooverlap_SA_sig_weights > 0)
 ```
 
-```{r}
-hist(SA_sig_weights, breaks = 10)
-mean(SA_sig_weights > 0)
-mean(SA_sig_weights > 0.05)
-```
-
+Identify cases where the bayesNMF result is truly unique, after considering posterior uncertainty around assignment
 ```{r}
 bayesNMF_df_noover %>%
   filter(SA_weights == 0)
 ```
 
-X - SBS40 in Bone Benign: SBS40 is correlated with age... might make sense in benign? (maybe remove bc benign is not a tumor?)
-X - SBS6 in Breast LobularCA: SBS6 associated with defective DNA mismatch repair and microsatellite instability. previously found in breast (unspecified) (maybe remove because G = 10)
-
-
-X - SBS56 in ColoRect AdenoCA: possible sequencing artifact
-X - SBS92 in Kidney RCC: associated with tobacco smoking, activity increased in bladder tumors, but not previously found in RCC
-X - SBS6 in Lymph CLL. prev in BNHL but not CLL...
-- SBS40 in Lymph CLL matches previous discoveries (in COSMIC)
-- SBS3 in Myeloid AML matches previous discoveries: https://www.sciencedirect.com/science/article/pii/S2213048924000293
-- SBS18 in ovary adenoCA: (in COSMIC) SBS18 is possibly damage by reactive oxygen species, associated with defective base excision repair due to MUTYH mutations. previously found in ovary adenoCA: https://www.nature.com/articles/s42003-025-08072-1, https://www.nature.com/articles/s42003-025-08529-3
-- SBS36 in Prost AdenoCA: SBS36 from defective BER including due to reactive oxygen species due to biallelic germline or somatic MUTYH mutations, similar to SBS18. Not listed on COSMIC as prost adenoca. Some literature... https://www.mdpi.com/2072-6694/12/12/3646
-- SBS8 in Uterus AdenoCA, confirmed by COSMIC
-
-
+Combine plots
 ```{r}
-bayesNMF_df %>% filter(overlap) %>% pull(Cosine_Similarity) %>% hist()
-hist(bayesNMF_df_noover$Cosine_Similarity, add = TRUE, col = 'red')
+fig_uncertainty <- gridExtra::arrangeGrob(
+  cosine_sim +
+    theme_light(base_size = 12) +
+    labs(x = "Cosine Similarity to Assigned Signature") +
+    ggtitle("A. Cosine Similarity") +
+    theme(
+      plot.title.position = "plot",
+      strip.text.y.left = element_text(angle = 0, color = "black"),
+      strip.background = element_rect(fill = "white", color = 'black', linewidth = 0.5),
+      plot.background = element_rect(fill = "white", color = 'black', linewidth = 0.5)
+    ),
+  voting_weight+
+    theme_light(base_size = 12) +
+    labs(x = "Voting Weight on Assigned Signature") +
+    ggtitle("B. Voting Weight") +
+    theme(
+      plot.title.position = "plot",
+      strip.text.y.left = element_text(angle = 0, color = "black"),
+      strip.background = element_rect(fill = "white", color = 'black', linewidth = 0.5),
+      plot.background = element_rect(fill = "white", color = 'black', linewidth = 0.5)
+    ),
+  ncol = 2
+)
+
+ggsave(file.path(figures_dir, "pcawg_uncertainty.png"), fig_uncertainty, width = 10, height = 5)
 ```

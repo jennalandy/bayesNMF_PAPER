@@ -1,8 +1,8 @@
 #!/bin/bash
 
 #SBATCH --job-name=study2_PT_MH_heuristic
-#SBATCH --array=1-6
-#SBATCH --time=3:00:00       			
+#SBATCH --array=1-20
+#SBATCH --time=5:00:00       			
 #SBATCH --ntasks=1
 #SBATCH --mem=3G       				
 #SBATCH --error=../../logs/study2/PT_MH_heuristic.error

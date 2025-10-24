@@ -13,6 +13,7 @@ counts <- data.frame(matrix(nrow = 0, ncol = 4))
 colnames(counts) <- c("model", "N", "G", "rep")
 model_dirs <- rev(list.dirs(output_dir, full.names = TRUE, recursive = FALSE))
 model_dirs <- model_dirs[!grepl("BIC", model_dirs) & !grepl("signatureanalyzer", model_dirs)]
+model_dirs <- model_dirs[!grepl("old", model_dirs)]
 for(model_dir in model_dirs) {
   model_name <- basename(model_dir)
   results_dirs <- list.files(model_dir, full.names = TRUE, recursive = FALSE)
@@ -51,6 +52,7 @@ results <- data.frame(matrix(nrow = 0, ncol = 8))
 colnames(results) <- c("model", "N", "G", "rep", "learned_rank", "precision", "sensitivity")
 model_dirs <- rev(list.dirs(output_dir, full.names = TRUE, recursive = FALSE))
 model_dirs <- model_dirs[!grepl("BIC", model_dirs) & !grepl("signatureanalyzer", model_dirs)]
+model_dirs <- model_dirs[!grepl("old", model_dirs)]
 for(model_dir in model_dirs) {
   model_name <- basename(model_dir)
   results_dirs <- list.files(model_dir, full.names = TRUE, recursive = FALSE)

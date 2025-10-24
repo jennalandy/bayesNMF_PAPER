@@ -11,7 +11,9 @@ processed_dir <- "../../processed/study1"
 # just checking what is done so far
 counts <- data.frame(matrix(nrow = 0, ncol = 4))
 colnames(counts) <- c("model", "N", "G", "rep")
-for(model_dir in list.dirs(output_dir, full.names = TRUE, recursive = FALSE)) {
+model_dirs <- list.dirs(output_dir, full.names = TRUE, recursive = FALSE)
+model_dirs <- model_dirs[!grepl("old", model_dirs)]
+for(model_dir in model_dirs) {
   model_name <- basename(model_dir)
   results_dirs <- list.files(model_dir, full.names = TRUE, recursive = FALSE)
 
@@ -35,8 +37,7 @@ for(model_dir in list.dirs(output_dir, full.names = TRUE, recursive = FALSE)) {
 counts %>%
   group_by(model, N, G) %>%
   tally() %>%
-  arrange(model) %>%
-  filter(n < 10)
+  arrange(n, model)
 
 ########################################################
 # Individual model metrics
@@ -44,6 +45,7 @@ counts %>%
 print("Processing individual model metrics")
 model_dirs <- list.dirs(output_dir, full.names = TRUE, recursive = FALSE)
 model_dirs  <- model_dirs[!grepl("repeated", model_dirs)]
+model_dirs  <- model_dirs[!grepl("old", model_dirs)]
 results <- lapply(model_dirs, function(model_dir) {
   print(model_dir)
   model_name <- basename(model_dir)
@@ -71,6 +73,12 @@ results <- lapply(model_dirs, function(model_dir) {
     data <- readRDS(file.path(data_dir, glue("N{N}_G{G}_rep{rep}.rds")))
     assignments <- hungarian_assignment(sampler$MAP$P, reference_P = data$P)
 
+    # avg mean_acceptance_P over the MAP samples
+    mean_mean_acceptance_P = sampler$samples$P_acceptance_rate[sampler$MAP$idx] %>%
+      sapply(mean) %>% mean()
+    mean_mean_acceptance_E = sampler$samples$E_acceptance_rate[sampler$MAP$idx] %>%
+      sapply(mean) %>% mean()
+
     metrics <- list(
       N = N,
       G = G,
@@ -85,7 +93,9 @@ results <- lapply(model_dirs, function(model_dir) {
       total_minutes = as.numeric(sampler$time$total),
       warmup_minutes = ifelse(MH, as.numeric(sampler$time$warmup), 0),
       minutes_per_iter = as.numeric(sampler$time$per_iter),
-      avg_mut_per_sample = mean(colMeans(data$M))
+      avg_mut_per_sample = mean(colMeans(data$M)),
+      mean_mean_acceptance_P = mean_mean_acceptance_P,
+      mean_mean_acceptance_E = mean_mean_acceptance_E
     )
     return(metrics)
   }) %>%
@@ -152,15 +162,15 @@ Standard_vs_MH_CIs_Exponential <- process_compare_credible_intervals("exponentia
 Standard_vs_MH_CIs_Gamma <- process_compare_credible_intervals("gamma", c("Poisson", "Poisson_MH")) %>%
   mutate(prior = "Gamma / Truncated Normal")
 
-Standard_vs_MH_CIs_Exponential_repeated <- process_compare_credible_intervals("exponential", c("Poisson", "Poisson_repeated")) %>%
-  mutate(prior = 'Exponential')
-Standard_vs_MH_CIs_Gamma_repeated <- process_compare_credible_intervals("gamma", c("Poisson", "Poisson_repeated")) %>%
-  mutate(prior = "Gamma / Truncated Normal")
+# Standard_vs_MH_CIs_Exponential_repeated <- process_compare_credible_intervals("exponential", c("Poisson", "Poisson_repeated")) %>%
+#   mutate(prior = 'Exponential')
+# Standard_vs_MH_CIs_Gamma_repeated <- process_compare_credible_intervals("gamma", c("Poisson", "Poisson_repeated")) %>%
+#   mutate(prior = "Gamma / Truncated Normal")
 
 Standard_vs_MH_CIs <- do.call(rbind, list(
   Standard_vs_MH_CIs_Exponential,
-  Standard_vs_MH_CIs_Gamma,
-  Standard_vs_MH_CIs_Exponential_repeated,
-  Standard_vs_MH_CIs_Gamma_repeated
+  Standard_vs_MH_CIs_Gamma #,
+  # Standard_vs_MH_CIs_Exponential_repeated,
+  # Standard_vs_MH_CIs_Gamma_repeated
 ))
 write_csv(Standard_vs_MH_CIs, file.path(processed_dir, "Standard_vs_MH_CIs.csv"))

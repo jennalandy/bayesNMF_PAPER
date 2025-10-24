@@ -101,19 +101,41 @@ for (N in Ns) {
     sparsity <- rbind(sparsity, data.frame(N = N, G = G, sparsity = mean(M == 0), median_count = median(M)))
   }
 }
+write.csv(sparsity, file.path(data_dir, "sparsity.csv"), row.names = FALSE)
 ```
 
 ```{r}
-sparsity %>%
+sparsity_plot <- sparsity %>%
   ggplot(aes(x = N, y = sparsity)) +
-  geom_point()
+  geom_point() +
+  theme_light(base_size = 12) +
+  labs(x = "Number of Signatures (N)", y = "Sparsity") +
+  theme(
+    plot.background = element_rect(fill = "white", color = "black", linewidth = 0.5),
+    plot.title.position = "plot"
+  )
 ggsave(file.path(figures_dir, "sparsity.png"))
 
 
-sparsity %>%
+sparsity_plot_median_count <- sparsity %>%
   ggplot(aes(x = N, y = median_count)) +
-  geom_jitter()
+  geom_jitter() +
+  theme_light(base_size = 12) +
+  labs(x = "Number of Signatures (N)", y = "Median Count") +
+  theme(
+    plot.background = element_rect(fill = "white", color = "black", linewidth = 0.5),
+    plot.title.position = "plot"
+  )
 ggsave(file.path(figures_dir, "median_count.png"))
+
+## combine
+data_plot <- gridExtra::grid.arrange(
+  sparsity_plot + ggtitle("A. Sparsity"),
+  sparsity_plot_median_count + ggtitle("B. Median Count"),
+  ncol = 2
+)
+ggsave(file.path(figures_dir, "sparsity_data.png"), data_plot, width = 10, height = 5)
+saveRDS(data_plot, file.path(figures_dir, "sparsity_data.rds"))
 ```
 
 Separately, save a csv file of the $M$ data matrix for each simulation (this is needed to run SignatureAnalyzer).

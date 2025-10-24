@@ -1,0 +1,141 @@
+---
+title: "Demonstrating bayesNMF capabilities with study1 data example"
+author: "Jenna Landy"
+---
+
+```{r}
+library(bayesNMF)
+library(ggplot2)
+library(tidyverse)
+library(ggedit)
+reference <- get_cosmic()
+
+output_dir = "../../output/study1"
+figures_dir = "../../figures/capabilities/study1"
+
+source("../plot_helpers.R")
+```
+
+```{r}
+sampler <- readRDS(file.path(output_dir, "P_T_MH/N4_G64_rep1/sampler.rds"))
+reference <- reference[rownames(sampler$data),]
+```
+
+```{r}
+sampler$state$converged <- FALSE
+tp <- trace_plot(sampler)
+tp2 <- tp + 
+  theme_light(base_size = 12) +
+  theme(
+    text = element_text(size = 12),
+    legend.position = "none",
+    legend.justification = "left",
+    legend.text = element_text(size = 9),
+    legend.title = element_text(size = 10),
+    legend.key.size = unit(0.1, "lines"),
+    strip.placement = 'outside',
+    strip.background = element_rect(fill = "white", color = 'grey'),
+    strip.text = element_text(color = "black"),
+    panel.grid.major = element_line(size = 0.5),
+    panel.grid.minor = element_line(size = 0.5),
+    plot.background = element_rect(fill = "white"),
+    axis.title.y = element_blank(),
+    axis.text.x.top = element_text(angle = 90, hjust = 0, vjust = 0.5)
+  )
+sampler$state$converged <- TRUE
+idx_annotations <- get_idx_annotations(sampler)
+tp3 <- add_annotations(tp2, sampler, idx_annotations, idx = 1:sampler$state$iter, size = 10)
+tp3
+```
+
+```{r}
+sampler$specs$output_dir = figures_dir
+plot(sampler, sigs = TRUE)
+```
+
+```{r}
+similarity_heatmap_greyscale <- sampler$reference_comparison$plots$similarity_heatmap %>%
+  remove_geom("text") +
+  geom_text(aes(color = ifelse(value > 0.9, "white", "black")), show.legend = FALSE) +
+  scale_fill_gradient(low = "white", high = "black") +
+  scale_color_identity() +
+  theme_light(base_size = 12) +
+  theme(
+    text = element_text(size = 12),
+    legend.text = element_text(size = 8),
+    legend.title = element_text(size = 9),
+    panel.grid.major = element_line(size = 0.2),
+    panel.grid.minor = element_line(size = 0.1),
+    plot.background = element_rect(fill = "white")
+  )
+ggsave(file.path(figures_dir, "similarity_heatmap_greyscale.png"), plot = similarity_heatmap_greyscale, height = 4, width = 4)
+```
+
+```{r}
+summary_greyscale <- sampler$reference_comparison$plots$summary +
+  scale_color_gradient(low = "lightgrey", high = "black") +
+  theme_light(base_size = 12) +
+  labs(y = "Reference Signatures") +
+  theme(
+    text = element_text(size = 12),
+    legend.text = element_text(size = 8),
+    legend.title = element_text(size = 9),
+    panel.grid.major = element_line(size = 0.2),
+    panel.grid.minor = element_line(size = 0.1),
+    plot.background = element_rect(fill = "white"),
+    axis.title.x = element_blank()
+  )
+ggsave(file.path(figures_dir, "summary_greyscale.png"), plot = summary_greyscale, height = 4, width = 3)
+```
+
+
+```{r}
+linewidth = 0.5 
+
+# Panel A: trace plots
+panel_A <- tp3
+
+
+# Panel C: plotting capabilities
+g1 <- ggplotGrob(
+  similarity_heatmap_greyscale +
+  theme(
+    plot.title = element_blank(),
+    plot.background = element_rect(fill = "white", color = "black", linewidth = linewidth)
+  )
+)
+g2 <- ggplotGrob(
+  summary_greyscale +
+  theme(
+    plot.background = element_rect(fill = "white", color = "black", linewidth = linewidth)
+  )
+)
+maxh <- unit.pmax(g1$heights, g2$heights)
+g1$heights <- maxh
+g2$heights <- maxh
+
+g3 <- sampler$reference_comparison$plots$sig_3 + 
+  ggtitle("Signature 3, Reference SBS40 | Cosine Similarity = 0.969") + 
+  theme(
+    plot.background = element_rect(fill = "white", color = "black", linewidth = linewidth),
+    plot.title = element_text(size = 12)
+  )
+g4 <- sampler$reference_comparison$plots$sig_4 + 
+  ggtitle("Signature 4, Reference SBS26 | Cosine Similarity = 0.999") + 
+  theme(
+    plot.background = element_rect(fill = "white", color = "black", linewidth = linewidth),
+    plot.title = element_text(size = 12)
+  )
+
+row_1 <- gridExtra::arrangeGrob(g1, g2, nrow = 1, widths = c(1.4, 1))
+col_2 <- gridExtra::arrangeGrob(row_1, g3, nrow = 2, heights = c(1, 0.5))
+
+plot <- gridExtra::grid.arrange(
+  tp3,
+  col_2,
+  ncol = 2, 
+  widths = c(0.5, 1)
+)
+
+ggsave(file.path(figures_dir, "capabilities_greyscale.png"), plot = plot, width = 7, height = 7)
+```

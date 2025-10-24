@@ -44,6 +44,7 @@ counts %>%
 print("Processing individual model metrics")
 model_dirs <- list.dirs(output_dir, full.names = TRUE, recursive = FALSE)
 model_dirs  <- model_dirs[!grepl("repeated", model_dirs)]
+model_dirs  <- model_dirs[!grepl("old", model_dirs)]
 results <- lapply(model_dirs, function(model_dir) {
   print(model_dir)
   model_name <- basename(model_dir)
@@ -71,6 +72,12 @@ results <- lapply(model_dirs, function(model_dir) {
     data <- readRDS(file.path(data_dir, glue("N{N}_G{G}_rep{rep}.rds")))
     assignments <- hungarian_assignment(sampler$MAP$P, reference_P = data$P)
 
+    # avg mean_acceptance_P over the MAP samples
+    mean_mean_acceptance_P = sampler$samples$P_acceptance_rate[sampler$MAP$idx] %>%
+      sapply(mean) %>% mean()
+    mean_mean_acceptance_E = sampler$samples$E_acceptance_rate[sampler$MAP$idx] %>%
+      sapply(mean) %>% mean()
+
     metrics <- list(
       N = N,
       G = G,
@@ -85,7 +92,9 @@ results <- lapply(model_dirs, function(model_dir) {
       total_minutes = as.numeric(sampler$time$total),
       warmup_minutes = ifelse(MH, as.numeric(sampler$time$warmup), 0),
       minutes_per_iter = as.numeric(sampler$time$per_iter),
-      avg_mut_per_sample = mean(colMeans(data$M))
+      avg_mut_per_sample = mean(colMeans(data$M)),
+      mean_mean_acceptance_P = mean_mean_acceptance_P,
+      mean_mean_acceptance_E = mean_mean_acceptance_E
     )
     return(metrics)
   }) %>%
