@@ -14,6 +14,19 @@ For the R package, see the [bayesNMF](https://github.com/jennalandy/bayesNMF) re
 - `figures`: saved figures from all analyses
 
 ## Reproducible Analysis
+
+### Table of Contents
+
+- [Core Analyses](#core-analyses-in-paper) 
+    - [`study1`](#study1-first-set-of-simulation-studies-providing-correct-rank): first set of simulation studies providing correct rank
+    - [`study2`](#study2-second-set-of-simulation-studies-learning-rank): second set of simulation studies learning rank
+    - [`pcawg`](#pcawg-pan-cancer-analysis-of-whole-genomes-pcawg-database-analysis) pan cancer analysis of whole genomes (PCAWG) database analysis
+- [Sensitivity Analyses](#sensitivity-analyses):  
+    - [`study1_sparse`](#study1_sparse): performance on sparse data providing correct rank
+    - [`study2_sparse`](#study2_sparse): performance on sparse data learning rank
+    - [`study2_N40`](#study2_n40): performance learning rank on expanded range 1-40
+    - [`study2_N10`](#study2_n10): performance learning rank on reduced range 1-10
+
 All analyses must be run in a particular order: generating or processing data, running slurm jobs or bash scripts, processing output, and finally visualizing results. For the user's convenience, files are named in numerical order. Descriptions of each step are below. Any R scripts not numbered / not listed here contain helper functions imported by other files (don't worry about them!).
 
 For each of the core analyses and sensitivity analyses, we also include the key figure associated with the analysis here.
