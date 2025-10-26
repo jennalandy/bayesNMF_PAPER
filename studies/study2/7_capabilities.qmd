@@ -10,6 +10,8 @@ library(tidyverse)
 library(ggedit)
 library(gridExtra)
 library(grid)
+library(scales)
+library(ggh4x)
 reference <- get_cosmic()
 
 output_dir = "../../output/study2"
@@ -26,13 +28,14 @@ sampler$specs$output_dir = figures_dir
 plot(sampler, sigs = TRUE)
 ```
 
-```{r}
-sampler$MAP$idx
-```
 
 ```{r}
 sampler <- readRDS(file.path(figures_dir, "sampler.rds"))
 reference <- reference[rownames(sampler$data),]
+```
+
+```{r}
+min(sampler$MAP$idx)
 ```
 
 ```{r}
@@ -51,6 +54,20 @@ tp2 <- tp +
     plot.background = element_rect(fill = "white"),
     axis.title.y = element_blank(),
     axis.title.x = element_blank()
+  ) +
+  ggh4x::facetted_pos_scales(
+    y = list(
+      scale_y_continuous(labels = scales::scientific),
+      scale_y_continuous(labels = scales::scientific),
+      scale_y_continuous(labels = scales::scientific),
+      NULL,
+      scale_y_continuous(labels = scales::scientific),
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL
+    )
   )
 sampler$state$converged <- TRUE
 idx_annotations <- get_idx_annotations(sampler)
@@ -98,62 +115,42 @@ tab = t(sampler$reference_comparison$votes)
 rownames(tab) = c("Estimated Signature", "Reference Signature", "Proportion of Votes")
 table_grob <- tableGrob(
   tab,
-  theme = ttheme_default(base_size = base_size)
+  theme = ttheme_default(base_size = 12, padding = unit(c(5, 5), "mm"))
 )
 ```
 
 ```{r}
 linewidth = 0.5 
 
-# Panel A: trace plots
-panel_A <- tp3
-
-
-# Panel C: plotting capabilities
 g1 <- ggplotGrob(
   similarity_heatmap_greyscale +
   theme(
     plot.title = element_blank(),
-    plot.background = element_rect(fill = "white", color = "black", linewidth = linewidth)
+    plot.background = element_rect(fill = "white", color = "black", linewidth = linewidth),
+    axis.title = element_text(size = 12)
   )
 )
 g2 <- ggplotGrob(
   summary_greyscale +
   theme(
-    plot.background = element_rect(fill = "white", color = "black", linewidth = linewidth)
+    plot.background = element_rect(fill = "white", color = "black", linewidth = linewidth),
+    axis.title = element_text(size = 12)
   )
 )
-
 g3 <- sampler$reference_comparison$plots$sig_2 + 
-  ggtitle("Signature 2, Reference SBS14 | Cosine Similarity = 0.999") + 
+  labs(
+    caption = paste(str_replace(sampler$reference_comparison$plots$sig_2$labels$title, "\n", " | "))
+  ) + 
   theme(
     plot.background = element_rect(fill = "white", color = "black", linewidth = linewidth),
-    plot.title = element_text(size = 12)
+    plot.title = element_blank(),
+    plot.caption = element_text(hjust = 0.5, vjust = 0, size = 12)
   )
 
-g4 <- sampler$reference_comparison$plots$sig_4 + 
-  ggtitle("Signature 4, Reference SBS54 | Cosine Similarity = 0.999") + 
-  theme(
-    plot.background = element_rect(fill = "white", color = "black", linewidth = linewidth),
-    plot.title = element_text(size = 12)
-  )
-
-col_1 <- gridExtra::arrangeGrob(tp3, table_grob, nrow = 2, heights = c(1, 0.1))
 
 row_1 <- gridExtra::arrangeGrob(g1, g2, nrow = 1, widths = c(1.4, 1))
-col_2 <- gridExtra::arrangeGrob(row_1, g3, nrow = 2, heights = c(1, 0.5))
+panel_C <- gridExtra::arrangeGrob(row_1, g3, nrow = 2, heights = c(1, 0.8))
 
-plot <- gridExtra::grid.arrange(
-  col_1,
-  col_2,
-  ncol = 2, 
-  widths = c(0.75, 1)
-)
-
-ggsave(file.path(figures_dir, "capabilities_greyscale.png"), plot = plot, width = 10, height = 7)
-```
-
-```{r}
 #--- helper to add a border around a grob or ggplot ---
 add_border <- function(obj, color = "black", lwd = 1) {
   grob_obj <- if (inherits(obj, "ggplot")) ggplotGrob(obj) else obj
@@ -164,11 +161,11 @@ add_border <- function(obj, color = "black", lwd = 1) {
 }
 
 #--- helper to add a title label above a grob ---
-add_label_above <- function(label, grob, size = 14, vspace = 0.2) {
+add_label_above <- function(label, grob, size = 17, vspace = 0.2) {
   title_grob <- textGrob(
     label, x = 0, y = 1,
     just = c("left", "top"),
-    gp = gpar(fontface = "bold", fontsize = size)
+    gp = gpar(fontsize = size)
   )
   gridExtra::arrangeGrob(
     title_grob,
@@ -178,9 +175,6 @@ add_label_above <- function(label, grob, size = 14, vspace = 0.2) {
                      unit(1, "null"))
   )
 }
-
-
-panel_C <- gridExtra::arrangeGrob(row_1, g3, nrow = 2, heights = c(1, 0.8))
 
 #--- apply to your objects ---
 tp3_boxed        <- add_border(tp3)
@@ -193,20 +187,12 @@ table_grob_labeled <- add_label_above("B. Signature Assignment", table_grob_boxe
 panel_C_labeled      <- add_label_above("C. Plotting Capabilities", panel_C_boxed)
 
 #--- Combine ---
-# col_1 <- gridExtra::arrangeGrob(
-#   tp3_labeled,
-#   grid::nullGrob(), # padding row
-#   table_grob_labeled,
-#   nrow = 3,
-#   heights = c(1, unit(0.03, "in"), 0.15) #0.03 in padding between traceplots and table
-# )
-
 col_2 <- gridExtra::arrangeGrob(
   table_grob_labeled,
   grid::nullGrob(),
   panel_C_labeled, 
   nrow = 3,
-  heights = c(0.15, unit(0.03, "in"), 1)
+  heights = c(0.25, unit(0.03, "in"), 1)
 )
 
 final_plot <- gridExtra::grid.arrange(
@@ -214,7 +200,7 @@ final_plot <- gridExtra::grid.arrange(
   grid::nullGrob(), # padding column
   col_2,
   ncol = 3,
-  widths = c(0.7, unit(0.03, "in"), 1) 
+  widths = c(0.6, unit(0.03, "in"), 1) 
 )
 
 ggsave(file.path(figures_dir, "capabilities_greyscale_boxed.png"), plot = final_plot, width = 10, height = 8.5)

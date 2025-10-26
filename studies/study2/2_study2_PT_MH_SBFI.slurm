@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=study2_PT_MH_SBFI
-#SBATCH --array=1-20
+#SBATCH --array=17-19
 #SBATCH --time=5:00:00       			
 #SBATCH --ntasks=1
 #SBATCH --mem=3G       				

@@ -283,6 +283,12 @@ figB_greyscale <- dat %>%
 ## Metrics of novel models
 
 ```{r}
+metrics_names = list(
+  "min_sim" = "Minimum Signature\nCosine Similarity",
+  "RMSE" = "Reconstruction\nRMSE",
+  "KL" = "Reconstruction\nKL Divergence",
+  "total_minutes" = "Runtime (Minutes)"
+)
 figC_greyscale <- metrics %>%
   filter(MH) %>%
   arrange(N, G) %>%
@@ -346,7 +352,7 @@ margin <- 0.02
 
 figA_greyscale_with_caption <- ggdraw(
   figA_greyscale + 
-    ggtitle("A. Agreement of MAP estimates") +
+    ggtitle("A. Agreement of Final Estimates") +
     labs(
       x = "Minimum cosine similarity"
     ) +
@@ -363,7 +369,7 @@ rowAB_greyscale <- plot_grid(
   blank,
   figB_greyscale + 
     theme(legend.position = "none") + 
-    ggtitle("B. Relative Efficiency\n     of Poisson + MH relative to Poisson") +
+    ggtitle("B. Relative Efficiency\n     Poisson + MH relative to Poisson") +
     theme(
       plot.title.position = "plot",
       axis.title.y = element_blank(),
@@ -400,6 +406,95 @@ fig_greyscale <- plot_grid(
 )
 
 ggsave(file.path(figures_dir, "study1_greyscale.png"), fig_greyscale, width = 7, height = 7)
+```
+
+```{r}
+#--- helper to add a border around a grob or ggplot ---
+add_border <- function(obj, color = "black", lwd = 1) {
+  grob_obj <- if (inherits(obj, "ggplot")) ggplotGrob(obj) else obj
+  grobTree(
+    grob_obj,
+    rectGrob(gp = gpar(col = color, lwd = lwd, fill = NA))
+  )
+}
+
+#--- helper to add a title label above a grob ---
+add_label_above <- function(label, grob, size = 12, vspace = 0.2) {
+  title_grob <- textGrob(
+    label, x = 0, y = 1,
+    just = c("left", "top"),
+    gp = gpar(fontsize = size)
+  )
+  gridExtra::arrangeGrob(
+    title_grob,
+    grob,
+    ncol = 1,
+    heights = unit.c(grobHeight(title_grob) + unit(vspace, "lines"),
+                     unit(1, "null"))
+  )
+}
+
+#--- apply to your objects ---
+legend_boxed <- add_border(
+  legend_greyscale <- g_legend(
+    figA_greyscale +
+    theme(legend.text = element_text(size = 12), legend.title = element_text(size = 12))
+  )
+)
+
+figA_boxed <- add_border(
+  figA_greyscale +
+    labs(
+      x = "Minimum cosine similarity"
+    ) +
+    theme(
+      plot.title = element_blank(),
+      legend.position = "none"
+    )
+)
+figA_labeled <- add_label_above("A. Agreement of Final Estimates", figA_boxed)
+
+figB_boxed <- add_border(
+  figB_greyscale +
+    labs(
+      y = "Speedup\nPoisson / Poisson + MH"
+    ) +
+    theme(
+      plot.title = element_blank(),
+      legend.position = "none",
+      strip.text.y.left = element_text(angle = 90, size = 12)
+    )
+)
+figB_labeled <- add_label_above("B. Relative Efficiency", figB_boxed)
+
+row_1 <- gridExtra::arrangeGrob(
+  figA_labeled,
+  grid::nullGrob(),
+  figB_labeled,
+  nrow = 1,
+  widths = c(3, margin*3, 2)
+)
+
+figC_boxed <- add_border(
+  figC_greyscale +
+    theme(
+      legend.position = "none",
+      plot.title = element_blank()
+    )
+)
+figC_labeled <- add_label_above("C. Poisson + MH Metrics", figC_boxed)
+
+final_plot <- gridExtra::grid.arrange(
+  legend_boxed,
+  grid::nullGrob(),
+  row_1,
+  grid::nullGrob(), # padding column
+  figC_labeled,
+  ncol = 1,
+  heights = c(0.1, unit(0.03, "in"), 1, unit(0.03, "in"), 1) 
+)
+
+ggsave(file.path(figures_dir, "study1_greyscale_boxed.png"), plot = final_plot, width = 7, height = 7)
 ```
 
 ## Comparing credible intervals

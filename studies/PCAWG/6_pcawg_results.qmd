@@ -33,6 +33,13 @@ processed_dir <- "../../processed/PCAWG/"
 drop <- c('Bone Benign','Breast LobularCA')
 ```
 
+Note: Rownames of PCAWG data overlap but are not in the same order as the rownames of the COSMIC reference. However, bayesNMF auto-aligns rownames of reference to the rownames of the data (in assign_signatures_ensemble used for bayesNMF methods, and in hungarian_assignment used for SignatureAnalyzer). So we don't need to manually align the reference to the data.
+
+```{r}
+setequal(rownames(reference), rownames(read.csv(file.path(processed_dir, "matrices_nonhyper", "Biliary_AdenoCA.csv"), row.names = 1)))
+all(rownames(reference) == rownames(read.csv(file.path(processed_dir, "matrices_nonhyper", "Biliary_AdenoCA.csv"), row.names = 1)))
+```
+
 ## bayesNMF Results
 
 Load all samplers and save to a shared rds
@@ -64,10 +71,6 @@ saveRDS(bayesNMF_all_res, file = file.path(processed_dir, "bayesNMF_all_res.rds"
 
 ```{r}
 bayesNMF_all_res <- readRDS(file.path(processed_dir, "bayesNMF_all_res.rds"))
-```
-
-```{r}
-reference <- reference[rownames(bayesNMF_all_res[[1]]$data),]
 ```
 
 Get summary df and save
@@ -200,13 +203,7 @@ results_df <- do.call(rbind, lapply(results_list, function(res) {
   Ehat <- sweep(Ehat, 1, colSums(Phat), '*')
   Phat <- sweep(Phat, 2, colSums(Phat), '/')
 
-  sim <- pairwise_sim(Phat, reference)
-  if (ncol(Phat) == 1) {
-    sim <- matrix(sim, nrow = 1)
-    colnames(sim) <- colnames(reference)
-    rownames(sim) <- colnames(Phat)
-  }
-  assigned <- hungarian_algorithm(sim)
+  assigned <- bayesNMF::hungarian_assignment(Phat, reference)
 
   Med_Contribution = apply(Ehat, 1, function(row) {
     if (sum(row > 0) == 0) {
@@ -400,15 +397,12 @@ ranks_greyscale
 included_signatures <- combo_df %>% filter(!(Name == "Skin Melanoma")) %>% pull(Signature) %>% unique()
 # order based on reference column names
 included_signatures <- included_signatures[order(match(included_signatures, colnames(reference)))]
-included_signatures_noSBS <- str_remove(included_signatures, "SBS")
-
 
 assignments_greyscale <- combo_df %>%
   filter(Name != "Skin Melanoma") %>%
   mutate(
     Name_G = paste0(Name, " (", G, ")"), Name_G = factor(Name_G, levels = unique(Name_G)),
-    Signature = str_remove(Signature, "SBS"),
-    Signature = factor(Signature, levels = included_signatures_noSBS)
+    Signature = factor(Signature, levels = included_signatures)
   ) %>%
   group_by(Name_G, Signature) %>%
   summarize(
@@ -469,25 +463,32 @@ g_legend <- function(a.gplot) {
   return(legend)
 }
 
-legend_greyscale <- g_legend(assignments_greyscale)
+legend_greyscale <- g_legend(
+  assignments_greyscale +
+  theme(
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 12)
+  )
+)
 blank <- ggplot() + theme_void()
 margin <- 0.02
 
 assignments_greyscale_with_caption <- assignments_greyscale + 
-    ggtitle("A.") +
-    labs(x = "COSMIC v3.3.1 SBS Signature") +
+    ggtitle("A. Comparison to COSMIC v3.3.1 SBS Reference Signatures") +
     theme(
       plot.title.position = "plot",
       plot.title = element_text(size = 12),
       legend.position = "none",
       axis.text.x.top = element_text(size = 6),
+      axis.title.x = element_blank(),
       axis.text.y = element_text(size = 7),
       plot.margin = unit(c(0, 0, 0, 0), "cm")
     )
 
 ranks_greyscale_with_caption <- ranks_greyscale + 
-    ggtitle("B.") +
+    ggtitle("B. Learned Rank") +
     theme(
+      axis.title.x = element_blank(),
       plot.title.position = "plot",
       plot.title = element_text(size = 12),
       legend.position = "none",
@@ -505,7 +506,7 @@ g1$heights <- maxh
 g2$heights <- maxh
 
 fig_greyscale <- gridExtra::arrangeGrob(
-  gridExtra::arrangeGrob(g1, g2, nrow = 1, widths = c(5, 1)),
+  gridExtra::arrangeGrob(g1, g2, nrow = 1, widths = c(5, 1.2)),
   legend_greyscale,
   nrow = 2,
   heights = c(10, 1)

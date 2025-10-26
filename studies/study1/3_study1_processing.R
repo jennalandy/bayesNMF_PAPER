@@ -79,6 +79,9 @@ results <- lapply(model_dirs, function(model_dir) {
     mean_mean_acceptance_E = sampler$samples$E_acceptance_rate[sampler$MAP$idx] %>%
       sapply(mean) %>% mean()
 
+    # compute effective sample size
+    
+
     metrics <- list(
       N = N,
       G = G,
